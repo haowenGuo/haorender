@@ -51,24 +51,36 @@ public:
 	}
 	int add_Light(const Vector4f& l);
 	int set_translation(float dx, float dy, float dz);
-	int set_rotate(float angel,const Vector3f& axis);
+	int set_scal(float dx, float dy, float dz);
+	int set_rotate(float angel, const Vector3f& axis);
 	int set_view(Vector3f eye_pos, Vector3f centre, Vector3f up);
+
+	Matrix4f get_view(Vector3f eye_pos, Vector3f centre, Vector3f up);
+
+	Matrix4f get_view(Vector3f& light_dir);
+
 	int set_projection(float eye_fov, float aspect_ratio, float zNear, float zFar);
+	Matrix4f getOrthographic(float left, float right, float bottom, float top, float, float);
 	int set_viewport(float x, float y, float w, float h);
+	Matrix4f get_viewport(float x, float y, float w, float h);
+	Matrix4f get_viewport2(float x, float y, float w, float h, float near, float far);
 	//int draw_simple(Mat &image,Model &model);
 	int draw_completed(Mat& image, Model& mymodel);
+	int draw_ShadowTexture(MatrixXd& image, Model& mymodel);
 	int clear(Mat& image);
 	int setTexture(const char* path);
 	int setNMTexture(const char* path);
 	int setSpecTexture(const char* path);
 	int closeBackCut();
 	int closeZbuff() { zbuff_open = 0; };
+	int openShadow() { shadow_on = 1; complexshader->shadow_on = 1; return 1; };
 	int setSimpleShader();
 	int setComplexShader(const Model& m);
 	int height;
 	int weight;
 	int backcut=1;
 	int zbuff_open = 1;
+	int shadow_on = 0;
 	vector<Vector4f> light_dir;
 	
 	MatrixXd zbuff;

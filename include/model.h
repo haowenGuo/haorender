@@ -23,7 +23,7 @@ struct MyColor {
 public:
 	union {
 		struct {
-			unsigned char b, g, r, a;
+			unsigned char r, g, b, a;
 		};
 		unsigned char raw[4];
 		unsigned int val;
@@ -49,20 +49,47 @@ public:
 class MyImage {
 public:
 	unsigned char* data=nullptr;
-	int width;
-	int height;
-	int channels;
+	int width = 0;
+	int height = 0;
+	int channels = 0;
 	MyImage() {  }
 	MyImage(const MyImage& p) {
 		if (this != &p) {
 			delete[] data;
-			data = p.data;
 			width = p.width;
 			height = p.height;
 			channels = p.channels;
 			unsigned long nbytes = width * height * channels;
 			data = new unsigned char[nbytes];
 			memcpy(data, p.data, nbytes);
+		}
+	};
+	MyImage(const MatrixXd& p) {
+		delete[] data;
+		width = p.cols();
+		height = p.rows();
+		channels = 1;
+		unsigned long nbytes = width * height * channels;
+		try {
+			data = new unsigned char[nbytes];
+		}
+		catch (const std::bad_alloc& e) {
+			width = 0;
+			height = 0;
+			channels = 0;
+			throw std::runtime_error("Memory allocation failed for image data");
+		}
+
+		// 转换矩阵数据到图像格式
+		// 使用Eigen的系数访问器进行高效遍历
+		for (Eigen::Index y = 0; y < height; ++y) {
+			for (Eigen::Index x = 0; x < width; ++x) {
+				// 对矩阵元素进行范围限制并转换为unsigned char
+				const double value = p(y, x);
+				data[x + y * width] = static_cast<unsigned char>(
+					std::max(0.0, std::min(255.0, value * 255.0))
+					);
+			}
 		}
 	};
 	MyImage(MyImage&& p) noexcept { 
@@ -74,7 +101,6 @@ public:
 				channels = p.channels;
 				p.data = nullptr;
 			}
-
 	}
 	MyImage& operator=(MyImage&& p) noexcept {
 		if (this != &p) {
@@ -121,6 +147,34 @@ public:
 			memcpy(data, img.data, nbytes);
 		}
 		return *this;
+	};
+	void operator =(MatrixXd& img) {
+		if (data) delete[] data;
+		width = img.cols();
+		height = img.rows();
+		channels = 1;
+		unsigned long nbytes = width * height * channels;
+		try {
+			data = new unsigned char[nbytes];
+		}
+		catch (const std::bad_alloc& e) {
+			width = 0;
+			height = 0;
+			channels = 0;
+			throw std::runtime_error("Memory allocation failed for image data");
+		}
+
+		// 转换矩阵数据到图像格式
+		// 使用Eigen的系数访问器进行高效遍历
+		for (Eigen::Index y = 0; y < height; ++y) {
+			for (Eigen::Index x = 0; x < width; ++x) {
+				// 对矩阵元素进行范围限制并转换为unsigned char
+				const double value = img(y, x);
+				data[x + y * width] = static_cast<unsigned char>(
+					std::max(0.0, std::min(255.0, value * 255.0))
+					);
+			}
+		}
 	};
 	int get_width()  const { return width; };
 	int get_height()  const { return height; };
@@ -213,6 +267,7 @@ struct texture {
 	int id;
 	string type;
 	texture() { id = -1; type = ""; }
+	texture(int id0, string type0) { id = id0; type = type0; }
 };
 class Mesh {
 public:
@@ -257,6 +312,7 @@ public:
 	vector<Mesh> meshes;
 	vector<MyImage> images;
 	string directory;
+	float maxx=-10000.f, minx = 10000.f, maxz = -10000.f, minz = 10000.f, maxy = -10000.f, miny = 10000.f;
 };
 
 Model modelread(const string& filepath);

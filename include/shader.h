@@ -46,6 +46,7 @@ public:
 	ComplexShader(string& modelpath) {}
 	~ComplexShader() {}
 	vector<Vector4f> positions;
+	vector<Vector4f> shadowpositions;
 	vector<Vector2f> uvs;
 	vector<Vector4f> normals;
 	//vector<Vector4f> positions;
@@ -54,14 +55,21 @@ public:
 	Matrix4f uniform_M;
 	Matrix4f uniform_MIT;
 	Matrix4f uniform_V;
+	Matrix4f uniform_P;
+	Matrix4f uniform_LV ;
+	Matrix4f uniform_LP ;
+	Matrix4f uniform_LVP;
 	vector<MyImage> textures;
+	MatrixXd shadowmap;
+	int shadow_on = 0;
 	Vector2f uv[3];
 	Vector4f n[3];
 	Vector4f position[3];
 	void addLight(Vector4f light);
-	void setUniform_M(const Matrix4f& m);
+	void setUniform_M( const Matrix4f& m);
 	void setUniform_MIT(const Matrix4f& m);
 	void setUniform_V(const Matrix4f& m);
+	void setUniform_P(const Matrix4f& p);
 	void setUV(vector<Vector2f>& uv0);
 	void setUV0(const Vector2f &uv0,int index);
 	void setN(const Vector4f &n0, int index);
@@ -71,8 +79,30 @@ public:
 	void setTexture(const vector<MyImage>& textures0);
 
 	Vector4f vertexShader(const vertex& vertexs, const Matrix4f& mvp);
+	int drawTriagle_completed(Mat& im, MatrixXd& zbuff, int difftexture, int nmtexture, int spectexture, int indexs[3], float z0, float z1, float z2);
 	int vertexShader2(const Vector4f& position0, const Vector2f& uv0, const Vector4f& n0, const Matrix4f& mvp, int t);
 	int fragmentShader(Vector3f& bc, Vec3b& color, int difftexture, int nmtexture, int spectexture);
 	int fragmentShader2(Vector3f& bc, Vec3b& color, int difftexture, int nmtexture, int spectexture);
-	int fragmentShader3(int x, int y, int z, Vec3b& color, int difftexture, int nmtexture, int spectexture, int indexs[3]);
+	int fragmentShader3(float x, float y, float z , Vec3b& color, int difftexture, int nmtexture, int spectexture, int indexs[3]);
+	int fragmentShader_shadow(float x, float y, float z, float x_shadow, float y_shadow, float z_shadow, Vec3b& color, int difftexture, int nmtexture, int spectexture, int indexs[3]);
+};
+
+class ShadowShader :public Shader {
+public:
+	ShadowShader() { positions.reserve(30000); }
+	ShadowShader(const Model& m) {}
+	ShadowShader(string& modelpath) {}
+	~ShadowShader() {}
+	vector<Vector4f> positions;
+	//vector<Vector4f> positions;
+	vector<Vector4f> light_dirs;
+	vector<Vector4f> point_light;
+	Matrix4f uniform_M;
+	Matrix4f uniform_V;
+	Matrix4f uniform_P;
+	Matrix4f uniform_VP;
+	int drawObject(Model& mymodel, MatrixXd& zbuff);
+	int vertexShader(const Vector4f& position0, int t);
+	int fragmentShader(Vector3f& bc, Vec3b& color);
+	int drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, MatrixXd& zbuff);
 };
