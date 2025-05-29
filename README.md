@@ -1,8 +1,8 @@
 ﻿# haorender
- 创建BUILD文件夹，控制台输入CMAKE ..  构建完整项目
- 使用mymodel传入对应模型路径
- 设置BACK_CUT,SHADOW_ON,等变量设置阴影效果
- 使用ADD_LIGHT添加灯光
+ 1、创建BUILD文件夹，控制台输入CMAKE ..  构建完整项目
+ 2、使用mymodel传入对应模型路径
+ 3、设置BACK_CUT,SHADOW_ON,等变量设置阴影效果
+ 4、使用ADD_LIGHT添加灯光
  ......
 # haorender
 <img width="1126" alt="image" src="https://github.com/user-attachments/assets/fb46f1fa-4a6e-45d9-ac84-fe85a77b22c0" />
