@@ -188,8 +188,8 @@ Vector3f barycentric4(const vector<Vector4f>& pts, Vector2i P) {
 	if (std::abs(u[2]) < 1) return Vector3f(-1, 1, 1);
 	return Vector3f(1.f - (u[0] + u[1]) / u[2], u[1] / u[2], u[0] / u[2]);
 }
-void barycentric5(const Vector4f& pts0, const Vector4f& pts1, const Vector4f& pts2, int x,int y,int &x0, int& y0, int& z0) {
-	/*float s1x = pts2[0] - pts0[0];
+void barycentric5(const Vector4f& pts0, const Vector4f& pts1, const Vector4f& pts2, int x,int y, float&x0, float& y0, float& z0) {
+	float s1x = pts2[0] - pts0[0];
 	float s1y = pts2[1] - pts0[1];
 	float s2x = pts1[0] - pts0[0];
 	float s2y = pts1[1] - pts0[1];
@@ -197,8 +197,8 @@ void barycentric5(const Vector4f& pts0, const Vector4f& pts1, const Vector4f& pt
 	float ty = pts0[1] - y;
 
 	// 手动展开叉乘计算
-	float u0 = s1y * tx - s1x * ty;
-	float u1 = s2x * ty - s2y * tx;
+	float u0 = s2x * ty - s2y * tx ;
+	float u1 = s1y * tx - s1x * ty ;
 	float u2 = s1x * s2y - s1y * s2x;
 
 	if (std::abs(u2) < 1) {
@@ -210,18 +210,52 @@ void barycentric5(const Vector4f& pts0, const Vector4f& pts1, const Vector4f& pt
 	float inv_u2 = 1.0f / u2;
 	x0 = 1.0f - (u0 + u1) * inv_u2;
 	y0 = u1 * inv_u2;
-	z0 = u0 * inv_u2;*/
-	
-	Vector3f u = Vector3f(pts2[0] - pts0[0], pts1[0] - pts0[0], pts0[0] - x).cross(Vector3f(pts2[1] - pts0[1], pts1[1] - pts0[1], pts0[1] - y));
-
-	if (std::abs(u[2]) < 1) { x0 = -1; y0 = 1; z0 = 1; //return Vector3f(-1, 1, 1) 
-	};
-	x0 = 1.f - (u[0] + u[1]) / u[2]; 
-	y0 = u[1] / u[2];
-	z0 = u[0] / u[2];
-	//return Vector3f(1.f - (u[0] + u[1]) / u[2], u[1] / u[2], u[0] / u[2]);
+	z0 = u0 * inv_u2;
 }
 
+void refinebc(float& x0, float& y0, float& z0,float z1, float z2, float z3) {
+	// 2. 计算透视矫正因子
+	float factor = (x0 / z1) + (y0 / z2) + (z0 / z3);
+
+	if (factor == 0) {
+		return; // 防止除零错误
+	}
+
+	// 3. 应用透视矫正
+	x0 = (x0 / z1) / factor;
+	y0 = (y0 / z2) / factor;
+	z0 = (z0 / z3) / factor;
+
+	return;
+}
+void barycentric6(const Vector4f& pts0, const Vector4f& pts1, const Vector4f& pts2, int x, int y, float& x0, float& y0, float& z0) {
+	float s1x = pts2[0] - pts0[0];
+	float s1y = pts2[1] - pts0[1];
+	float s2x = pts1[0] - pts0[0];
+	float s2y = pts1[1] - pts0[1];
+	float tx = pts0[0] - x;
+	float ty = pts0[1] - y;
+
+	// 手动展开叉乘计算
+	float u0 = s2x * ty - s2y * tx;
+	float u1 = s1y * tx - s1x * ty;
+	float u2 = s1x * s2y - s1y * s2x;
+
+	if (std::abs(u2) < 1) {
+		x0 = -1; y0 = 1; z0 = 1;
+		return;
+	}
+
+	// 预计算倒数，将除法转为乘法
+	float inv_u2 = 1.0f / u2;
+	x0 = 1.0f - (u0 + u1) * inv_u2;
+	y0 = u1 * inv_u2;
+	z0 = u0 * inv_u2;
+
+
+	return;
+
+}
 int drawTriagle2(Mat& im, int weight, int height, const vector<vector<int>>& ves, const Vec3b& color, Mat& zbuff) {
 	if (ves.size() > 3 || ves.size() <= 0) {
 		cout << "drawTriagle 异常" << endl;
@@ -279,6 +313,7 @@ int drawTriagle_shader(Mat& im,const vector<vec4>& vertexs, SimpleShader& shader
 	for (P[0] = bboxmin[0]; P[0] <= bboxmax[0]; P[0]++) {
 		for (P[1] = bboxmin[1]; P[1] <= bboxmax[1]; P[1]++) {
 			Vec3f bc_screen = barycentric3(vertexs, P);
+
 			if (bc_screen[0] < 0 || bc_screen[1] < 0 || bc_screen[2] < 0) continue;
 			float z = 0, u = 0, v = 0;
 			for (int i = 0; i < 3; i++) {
@@ -308,7 +343,6 @@ int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const
 	}*/
 	int weight = im.cols;
 	int height = im.rows;
-	int t = 0;
 	
 	//Vector2f bboxmin(weight - 1, height - 1);
 	//Vector2f bboxmax(0, 0);
@@ -317,16 +351,15 @@ int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const
 	{
 		minx = max(0, min(minx, (int)v0[0])); minx = max(0, min(minx, (int)v1[0])); minx = max(0, min(minx, (int)v2[0]));
 		miny = max(0, min(miny, (int)v0[1])); miny = max(0, min(miny, (int)v1[1])); miny = max(0, min(miny, (int)v2[1]));
-		maxx = min(weight - 1, max(maxx, (int)v0[0])); maxx = min(weight - 1, max(maxx, (int)v1[0])); maxx = min(weight - 1, max(maxx, (int)v2[0]));
-		maxy = min(height - 1, max(maxy, (int)v0[1])); maxy = min(height - 1, max(maxy, (int)v1[1])); maxy = min(height - 1, max(maxy, (int)v2[1]));
+		maxx = min(weight - 1, max(maxx, static_cast<int>(ceil(v0[0])))); maxx = min(weight - 1, max(maxx, static_cast<int>(ceil(v1[0])))); maxx = min(weight - 1, max(maxx, static_cast<int>(ceil(v2[0]))));
+		maxy = min(height - 1, max(maxy, static_cast<int>(ceil(v0[1])))); maxy = min(height - 1, max(maxy, static_cast<int>(ceil(v1[1])))); maxy = min(height - 1, max(maxy, static_cast<int>(ceil(v2[1]))));
 	}
 	//return (maxx - minx + 1) * (maxy - miny + 1);
 	for (int x = minx; x <= maxx; x++) {
 		for (int y = miny; y <= maxy; y++) {
-			int x0,  y0, z0;
-			//for (int t = 0; t < 2011; t++);
-			barycentric5(v0, v1, v2, x, y, x0, y0, z0);
-			//cout << x0 << ' ' << y0 << ' ' << z0 << endl;
+			//int sample = (v0[2] + 1) * 2;
+			float x0= x,  y0= y, z0= v0[2];
+			barycentric5(v0, v1, v2, x+0.5, y+0.5, x0, y0, z0);
 			if (x0 < 0 || y0 < 0 || z0 < 0) continue;
 			float z = 0;
 			//z += 5.f * 2.f; z += 5.f * 2.f; z += 5.f * 2.f;
@@ -334,61 +367,12 @@ int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const
 			if (z >= zbuff(y, x))continue;
 			zbuff(y, x) = z;
 			Vec3b color;
+
 			shader.fragmentShader3(x0, y0, z0, color, difftexture, nmtexture, spectexture,indexs);
 			im.at<Vec3b>(height - y - 1, x) = color;
-			//Vector3f bc_screen = barycentric5(v0, v1, v2, x, y,  x0,  y0,  z0);
-			//Vector3f bc_screen = {0.f,0.f, 0.f};
-			/*if (bc_screen[0] < 0 || bc_screen[1] < 0 || bc_screen[2] < 0) continue;
 
-			float z = 0, u = 0, v = 0;
-			for (int i = 0; i < 3; i++) {
-				z += bc_screen[i] * vertexs[i][2];
-			}
-			if (z >= zbuff(P[1], P[0]))continue;
-			//if (intense <= 0)continue;
-			zbuff(P[1], P[0]) = z;
-			Vec3b color;
-			shader.fragmentShader2(bc_screen, color, difftexture, nmtexture, spectexture);
-			//TGAColor col = texture.get(u * texture.get_width(), v * texture.get_height());
-			//Vec3b color(col.b * intense, col.g * intense, col.r * intense);
-			im.at<Vec3b>(height - P[1] - 1, P[0]) = color;
-			//image.set(P[0], P[1], color);*/
-		}
 	}
-	/*for (int i = 0; i < 3; i++) {
-		bboxmin[0] = max(.0f, min(bboxmin[0], vertexs[i][0]));
-		bboxmin[1] = max(.0f, min(bboxmin[1], vertexs[i][1]));
-
-		bboxmax[0] = min(clamp[0], max(bboxmax[0], vertexs[i][0]));
-		bboxmax[1] = min(clamp[1], max(bboxmax[1], vertexs[i][1]));
-	}
-	return (bboxmax[0] - bboxmin[0] + 1) * (bboxmax[1] - bboxmin[1] + 1);*/
-	//if(bboxmax[0]< bboxmin[0] || bboxmax[1]< bboxmin[1]){ return -1; }
-	Vector2i P;
-	/*
-	for (P[0] = bboxmin[0]; P[0] <= bboxmax[0]; P[0]++) {
-		for (P[1] = bboxmin[1]; P[1] <= bboxmax[1]; P[1]++) {
-			
-		
-			Vector3f bc_screen = barycentric4(vertexs, P);
-			//Vector3f bc_screen = {0.f,0.f, 0.f};
-			if (bc_screen[0] < 0 || bc_screen[1] < 0 || bc_screen[2] < 0) continue;
-			
-			float z = 0, u = 0, v = 0;
-			for (int i = 0; i < 3; i++) {
-				z += bc_screen[i] * vertexs[i][2];
-			}
-			if (z >= zbuff(P[1], P[0]))continue;
-			//if (intense <= 0)continue;
-			zbuff(P[1], P[0]) = z;
-			Vec3b color;
-			shader.fragmentShader2(bc_screen, color, difftexture,  nmtexture,spectexture);
-			//TGAColor col = texture.get(u * texture.get_width(), v * texture.get_height());
-			//Vec3b color(col.b * intense, col.g * intense, col.r * intense);
-			im.at<Vec3b>(height - P[1] - 1, P[0]) = color;
-			//image.set(P[0], P[1], color);
 		}
-	}*/
 	return 1;
 };
 

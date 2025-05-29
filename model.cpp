@@ -105,6 +105,7 @@ int Model::modelread(const string& filepath) {
 		filepath,
 		aiProcess_Triangulate |         // 将多边形分解为三角形
 		aiProcess_GenSmoothNormals |    // 生成平滑法线
+		aiProcess_FlipUVs |
 		aiProcess_JoinIdenticalVertices // 合并重复顶点
 	);
 	//aiProcess_FlipUVs | // 翻转UV坐标（DirectX风格）
@@ -119,8 +120,10 @@ int Model::modelread(const string& filepath) {
 }
 int Model::processNode(aiNode* node, const aiScene* scene) {
 	// process all the node's meshes (if any)
+	int p = 0;
 	for (unsigned int i = 0; i < node->mNumMeshes; i++)
 	{
+		//cout << "11111"<<p++<<" " << node->mMeshes[i] << endl;
 		aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 		meshes.push_back(processMesh(mesh, scene));	
 	}
@@ -149,7 +152,7 @@ int Model::TextureFromFile(const char* path, const string directory) {
 	if (imageData == nullptr) {
 		std::cerr << "无法加载图像: " << imagePath << std::endl;
 		std::cerr << "错误: " << stbi_failure_reason() << std::endl;
-		return 1;
+		return -1;
 	}
 
 	// 输出图像信息
@@ -173,7 +176,7 @@ vector<texture> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type,
 		mat->GetTexture(type, i, &str);
 		texture texture0;
 		texture0.id = TextureFromFile(str.C_Str(), this->directory);
-		cout << "id=" << texture0.id << endl;
+		//cout << "id=" << texture0.id << endl;
 		texture0.type = typeName;
 		//texture0.path = str;
 		textures.push_back(texture0);
@@ -195,7 +198,12 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
 		vertex.v[1] = mesh->mVertices[i].y;
 		vertex.v[2] = mesh->mVertices[i].z;
 		vertex.v[3] = 1.f;
-
+		maxx = max(maxx, vertex.v[0]);
+		maxy = max(maxy, vertex.v[1]);
+		maxz = max(maxz, vertex.v[2]);
+		minx = min(minx, vertex.v[0]);
+		miny = min(miny, vertex.v[1]);
+		minz = min(minz, vertex.v[2]);
 		vertex.n[0] = mesh->mNormals[i].x;
 		vertex.n[1] = mesh->mNormals[i].y;
 		vertex.n[2] = mesh->mNormals[i].z;
@@ -227,6 +235,10 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
 		vector<texture> diffuseMaps = this->loadMaterialTextures(material,
 			aiTextureType_DIFFUSE, "texture_diffuse");
 		textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
+		/*
+		vector<texture> normalMaps = this->loadMaterialTextures(material,
+			aiTextureType_NORMALS, "texture_normals");
+		textures.insert(textures.end(), normalMaps.begin(), normalMaps.end());*/
 		vector<texture> specularMaps = this->loadMaterialTextures(material,
 			aiTextureType_SPECULAR, "texture_specular");
 		textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
