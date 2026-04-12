@@ -134,6 +134,10 @@ public:
 
 class ShadowShader :public Shader {
 public:
+	struct PassProfile {
+		double vertex_ms = 0.0;
+		double raster_ms = 0.0;
+	};
 	ShadowShader() { positions.reserve(30000); }
 	ShadowShader(const Model& m) {}
 	ShadowShader(string& modelpath) {}
@@ -146,7 +150,7 @@ public:
 	Matrix4f uniform_V;
 	Matrix4f uniform_P;
 	Matrix4f uniform_VP;
-	int drawObject(Model& mymodel, RenderDepthBuffer& zbuff);
+	int drawObject(Model& mymodel, RenderDepthBuffer& zbuff, PassProfile* profile = nullptr);
 	int vertexShader(const Vector4f& position0, int t);
 	int fragmentShader(Vector3f& bc, Vec3b& color);
 	int drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, RenderDepthBuffer& zbuff);

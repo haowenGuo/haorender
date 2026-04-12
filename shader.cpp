@@ -6,6 +6,11 @@
 Shader::~Shader() {};
 
 namespace {
+double durationMsLocal(const std::chrono::high_resolution_clock::time_point& start,
+	const std::chrono::high_resolution_clock::time_point& end) {
+	return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
+}
+
 float wrap01(float value) {
 	if (!std::isfinite(value)) {
 		return 0.f;
@@ -1061,6 +1066,24 @@ int ShadowShader::fragmentShader(Vector3f& bc, Vec3b& color) {
 	return 1;
 
 };
+static bool shadowTriangleMaybeVisible(const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, int width, int height) {
+	const float minx = std::min({ v0[0], v1[0], v2[0] });
+	const float maxx = std::max({ v0[0], v1[0], v2[0] });
+	const float miny = std::min({ v0[1], v1[1], v2[1] });
+	const float maxy = std::max({ v0[1], v1[1], v2[1] });
+	const float minz = std::min({ v0[2], v1[2], v2[2] });
+	const float maxz = std::max({ v0[2], v1[2], v2[2] });
+	if (maxx < 0.0f || minx > static_cast<float>(width - 1) || maxy < 0.0f || miny > static_cast<float>(height - 1)) {
+		return false;
+	}
+	if (maxz < 0.0f || minz > 1.0f) {
+		return false;
+	}
+	Vector2f e1(v1[0] - v0[0], v1[1] - v0[1]);
+	Vector2f e2(v2[0] - v0[0], v2[1] - v0[1]);
+	float area2 = e1[0] * e2[1] - e1[1] * e2[0];
+	return std::abs(area2) > 1e-8f;
+}
 int ShadowShader::drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, RenderDepthBuffer& zbuff) {
 	/*
 	if (vertexs.size() > 3 || vertexs.size() <= 0) {
@@ -1102,13 +1125,17 @@ int ShadowShader::drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vec
 	}
 	return 1;
 };
-int ShadowShader::drawObject( Model& mymodel, RenderDepthBuffer& zbuff) {
-	
+int ShadowShader::drawObject( Model& mymodel, RenderDepthBuffer& zbuff, PassProfile* profile) {
+	double vertexMs = 0.0;
+	double rasterMs = 0.0;
+	int width = zbuff.cols();
+	int height = zbuff.rows();
 	for (int i = 0; i < mymodel.meshes.size(); i++) {
 		Mesh& mesh = mymodel.meshes[i];
 		if (mesh.vertexCount() == 0 || mesh.indices.empty()) {
 			continue;
 		}
+		auto vertexStart = std::chrono::high_resolution_clock::now();
 		positions.clear();
 		positions.resize(mesh.vertexCount());
 		#pragma omp parallel for
@@ -1116,16 +1143,24 @@ int ShadowShader::drawObject( Model& mymodel, RenderDepthBuffer& zbuff) {
 			vertexShader(mesh.vertexPosition(j), j);
 
 		}
-
+		auto vertexEnd = std::chrono::high_resolution_clock::now();
+		vertexMs += durationMsLocal(vertexStart, vertexEnd);
+		auto rasterStart = std::chrono::high_resolution_clock::now();
 		for (int j = 0; j < mesh.indices.size(); j += 3) {
-			//cout << indexs[0]<<" " << " "<<indexs[1]<< " " << indexs[2] << endl;
 			Vector4f& v0 = positions[mesh.indices[j]];
 			Vector4f& v1 = positions[mesh.indices[j + 1]];
 			Vector4f& v2 = positions[mesh.indices[j + 2]];
+			if (!shadowTriangleMaybeVisible(v0, v1, v2, width, height)) {
+				continue;
+			}
 			this->drawTriagle( v0, v1, v2, zbuff);
-			
-			//fragmentShader(image, v0, v1, v2, *complexshader, zbuff, difftexture, nmtexture, spectexture, indexs);
 		}
+		auto rasterEnd = std::chrono::high_resolution_clock::now();
+		rasterMs += durationMsLocal(rasterStart, rasterEnd);
+	}
+	if (profile != nullptr) {
+		profile->vertex_ms += vertexMs;
+		profile->raster_ms += rasterMs;
 	}
 	return 1;
 };

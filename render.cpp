@@ -36,6 +36,7 @@ shared_ptr<TGAImage>  readTga(const char* path) {
 
 int render::add_Light(const Vector4f& l) {
 	light_dir.push_back(l.normalized());
+	shadow_cache_dirty = 1;
 	if (complexshader) {
 		complexshader->addLight(*(light_dir.end() - 1));
 	}
@@ -49,6 +50,7 @@ int render::set_translation(float dx, float dy, float dz) {
 		0, 0, 0, 1;
 	translate;
 	model = translate *model;
+	shadow_cache_dirty = 1;
 	return 1;
 };
 int render::set_scal(float dx, float dy, float dz) {
@@ -59,6 +61,7 @@ int render::set_scal(float dx, float dy, float dz) {
 		       0, 0, 0, 1;
 	     
 	model = scal * model;
+	shadow_cache_dirty = 1;
 	return 1;
 };
 
@@ -94,6 +97,7 @@ int render::set_rotate(float angle, const Vector3f& axis) {
 		0, 0, 0, 1;
 	// 4x4齐次旋转矩阵
 	model = rotate*model;
+	shadow_cache_dirty = 1;
 	return 1;
 }; 
 
@@ -254,12 +258,12 @@ int render::draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel) {
 		complexshader->uniform_LV = sshader->uniform_V;
 		complexshader->uniform_LP = sshader->uniform_P;
 		complexshader->uniform_LVP = sshader->uniform_VP;
-		sshader->drawObject( mymodel, image);
+		sshader->drawObject( mymodel, image, nullptr);
 	}
 
 	return 1;
 };
-int render::draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP) {
+int render::draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP, ShadowShader::PassProfile* profile) {
 	shared_ptr<ShadowShader> sshader = make_shared<ShadowShader>();
 	for (int i = 0; i < light_dir.size(); i++) {
 		Vector3f lightForward = light_dir[i].head<3>().normalized();
@@ -275,7 +279,7 @@ int render::draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float e
 		outLV = sshader->uniform_V;
 		outLP = sshader->uniform_P;
 		outLVP = sshader->uniform_VP;
-		sshader->drawObject(mymodel, image);
+		sshader->drawObject(mymodel, image, profile);
 	}
 	return 1;
 }
@@ -284,6 +288,10 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	if (complexshader == nullptr) { cout<<"没有设置正确的着色器" << endl; return -1; }
 	last_profile.shadow_near_ms = 0.0;
 	last_profile.shadow_far_ms = 0.0;
+	last_profile.shadow_near_vertex_ms = 0.0;
+	last_profile.shadow_near_raster_ms = 0.0;
+	last_profile.shadow_far_vertex_ms = 0.0;
+	last_profile.shadow_far_raster_ms = 0.0;
 	last_profile.vertex_ms = 0.0;
 	last_profile.clip_bin_ms = 0.0;
 	last_profile.raster_shade_ms = 0.0;
@@ -293,35 +301,54 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	}*/
 	auto renderStart = std::chrono::high_resolution_clock::now();
 	if (shadow_on) {
-		RenderDepthBuffer shadow_map_near(shadow_height, shadow_width);
-		RenderDepthBuffer shadow_map_far(shadow_height, shadow_width);
-		shadow_map_near.setConstant(makeRenderDepth(1.0f));
-		shadow_map_far.setConstant(makeRenderDepth(1.0f));
-		//shadow_map.height = image.rows;
-		//shadow_map.width = image.cols;
-		//ShadowShader sh;
-		Matrix4f lvNear = Matrix4f::Identity();
-		Matrix4f lpNear = Matrix4f::Identity();
-		Matrix4f lvpNear = Matrix4f::Identity();
-		Matrix4f lvFar = Matrix4f::Identity();
-		Matrix4f lpFar = Matrix4f::Identity();
-		Matrix4f lvpFar = Matrix4f::Identity();
-		auto shadowNearStart = std::chrono::high_resolution_clock::now();
-		draw_ShadowTexture(shadow_map_near, mymodel, 1.6f, 3.0f, lvNear, lpNear, lvpNear);
-		auto shadowNearEnd = std::chrono::high_resolution_clock::now();
-		last_profile.shadow_near_ms = durationMs(shadowNearStart, shadowNearEnd);
-		auto shadowFarStart = std::chrono::high_resolution_clock::now();
-		draw_ShadowTexture(shadow_map_far, mymodel, 4.0f, 8.0f, lvFar, lpFar, lvpFar);
-		auto shadowFarEnd = std::chrono::high_resolution_clock::now();
-		last_profile.shadow_far_ms = durationMs(shadowFarStart, shadowFarEnd);
-		complexshader->shadowmap_near = move(shadow_map_near);
-		complexshader->shadowmap_far = move(shadow_map_far);
-		complexshader->uniform_LV_near = lvNear;
-		complexshader->uniform_LP_near = lpNear;
-		complexshader->uniform_LVP_near = lvpNear;
-		complexshader->uniform_LV_far = lvFar;
-		complexshader->uniform_LP_far = lpFar;
-		complexshader->uniform_LVP_far = lvpFar;
+		if (!shadow_cache_valid || shadow_cache_dirty) {
+			RenderDepthBuffer shadow_map_near(shadow_near_height, shadow_near_width);
+			RenderDepthBuffer shadow_map_far(shadow_far_height, shadow_far_width);
+			shadow_map_near.setConstant(makeRenderDepth(1.0f));
+			shadow_map_far.setConstant(makeRenderDepth(1.0f));
+			Matrix4f lvNear = Matrix4f::Identity();
+			Matrix4f lpNear = Matrix4f::Identity();
+			Matrix4f lvpNear = Matrix4f::Identity();
+			Matrix4f lvFar = Matrix4f::Identity();
+			Matrix4f lpFar = Matrix4f::Identity();
+			Matrix4f lvpFar = Matrix4f::Identity();
+			ShadowShader::PassProfile nearProfile;
+			ShadowShader::PassProfile farProfile;
+			auto shadowNearStart = std::chrono::high_resolution_clock::now();
+			draw_ShadowTexture(shadow_map_near, mymodel, 1.4f, 3.0f, lvNear, lpNear, lvpNear, &nearProfile);
+			auto shadowNearEnd = std::chrono::high_resolution_clock::now();
+			last_profile.shadow_near_ms = durationMs(shadowNearStart, shadowNearEnd);
+			last_profile.shadow_near_vertex_ms = nearProfile.vertex_ms;
+			last_profile.shadow_near_raster_ms = nearProfile.raster_ms;
+			auto shadowFarStart = std::chrono::high_resolution_clock::now();
+			draw_ShadowTexture(shadow_map_far, mymodel, 4.0f, 8.0f, lvFar, lpFar, lvpFar, &farProfile);
+			auto shadowFarEnd = std::chrono::high_resolution_clock::now();
+			last_profile.shadow_far_ms = durationMs(shadowFarStart, shadowFarEnd);
+			last_profile.shadow_far_vertex_ms = farProfile.vertex_ms;
+			last_profile.shadow_far_raster_ms = farProfile.raster_ms;
+			cached_shadow_map_near = move(shadow_map_near);
+			cached_shadow_map_far = move(shadow_map_far);
+			cached_lv_near = lvNear;
+			cached_lp_near = lpNear;
+			cached_lvp_near = lvpNear;
+			cached_lv_far = lvFar;
+			cached_lp_far = lpFar;
+			cached_lvp_far = lvpFar;
+			shadow_cache_valid = 1;
+			shadow_cache_dirty = 0;
+		}
+		complexshader->shadowmap_near = cached_shadow_map_near;
+		complexshader->shadowmap_far = cached_shadow_map_far;
+		complexshader->uniform_LV_near = cached_lv_near;
+		complexshader->uniform_LP_near = cached_lp_near;
+		complexshader->uniform_LVP_near = cached_lvp_near;
+		complexshader->uniform_LV_far = cached_lv_far;
+		complexshader->uniform_LP_far = cached_lp_far;
+		complexshader->uniform_LVP_far = cached_lvp_far;
+		if (last_profile.shadow_near_ms == 0.0 && last_profile.shadow_far_ms == 0.0) {
+			last_profile.shadow_near_ms = 0.0;
+			last_profile.shadow_far_ms = 0.0;
+		}
 		complexshader->shadow_on = 1;
 		complexshader->shadow_cascade_on = 1;
 		complexshader->cascade_split = 2.2f;

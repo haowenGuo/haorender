@@ -82,7 +82,11 @@ void applyPbrChannelMap(Model& model, const MaterialPbrChannelMap& map) {
 void printFrameProfile(const render::FrameProfile& profile) {
     cout << "[Profiler] clear=" << profile.clear_ms
         << " ms, shadow near=" << profile.shadow_near_ms
+        << " ms (v=" << profile.shadow_near_vertex_ms
+        << ", r=" << profile.shadow_near_raster_ms << ")"
         << " ms, shadow far=" << profile.shadow_far_ms
+        << " ms (v=" << profile.shadow_far_vertex_ms
+        << ", r=" << profile.shadow_far_raster_ms << ")"
         << " ms, vertex=" << profile.vertex_ms
         << " ms, clip+bin=" << profile.clip_bin_ms
         << " ms, raster+shade=" << profile.raster_shade_ms

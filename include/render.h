@@ -17,6 +17,10 @@ public:
 		double clear_ms = 0.0;
 		double shadow_near_ms = 0.0;
 		double shadow_far_ms = 0.0;
+		double shadow_near_vertex_ms = 0.0;
+		double shadow_near_raster_ms = 0.0;
+		double shadow_far_vertex_ms = 0.0;
+		double shadow_far_raster_ms = 0.0;
 		double vertex_ms = 0.0;
 		double clip_bin_ms = 0.0;
 		double raster_shade_ms = 0.0;
@@ -77,7 +81,7 @@ public:
 	//int draw_simple(Mat &image,Model &model);
 	int draw_completed(Mat& image, Model& mymodel);
 	int draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel);
-	int draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP);
+	int draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP, ShadowShader::PassProfile* profile = nullptr);
 	int clear(Mat& image);
 	int setTexture(const char* path);
 	int setNMTexture(const char* path);
@@ -95,6 +99,10 @@ public:
 	int shadow_on = 0;
 	int shadow_width = 2048;
 	int shadow_height = 2048;
+	int shadow_near_width = 1536;
+	int shadow_near_height = 1536;
+	int shadow_far_width = 1024;
+	int shadow_far_height = 1024;
 	vector<Vector4f> light_dir;
 	
 	RenderDepthBuffer zbuff;
@@ -109,4 +117,14 @@ public:
 	shared_ptr<TGAImage> spectexture ;
 	FrameProfile last_profile;
 	vector<vector<int>> tile_bins_cache;
+	RenderDepthBuffer cached_shadow_map_near;
+	RenderDepthBuffer cached_shadow_map_far;
+	Matrix4f cached_lv_near = Matrix4f::Identity();
+	Matrix4f cached_lp_near = Matrix4f::Identity();
+	Matrix4f cached_lvp_near = Matrix4f::Identity();
+	Matrix4f cached_lv_far = Matrix4f::Identity();
+	Matrix4f cached_lp_far = Matrix4f::Identity();
+	Matrix4f cached_lvp_far = Matrix4f::Identity();
+	int shadow_cache_valid = 0;
+	int shadow_cache_dirty = 1;
 };
