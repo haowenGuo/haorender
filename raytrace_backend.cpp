@@ -134,9 +134,12 @@ public:
 		ray.id = 0u;
 		ray.flags = 0u;
 
-		RTCIntersectContext context;
-		rtcInitIntersectContext(&context);
-		rtcOccluded1(scene, &context, &ray);
+		RTCRayQueryContext context;
+		rtcInitRayQueryContext(&context);
+		RTCOccludedArguments args;
+		rtcInitOccludedArguments(&args);
+		args.context = &context;
+		rtcOccluded1(scene, &ray, &args);
 		return ray.tfar < 0.0f;
 	}
 

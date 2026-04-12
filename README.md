@@ -89,6 +89,12 @@ You can also pass a model path:
 .\myrender.exe ..\Resources\MAIFU\IF.fbx
 ```
 
+You can explicitly choose the shadow backend at startup:
+
+```powershell
+.\myrender.exe ..\Resources\MAIFU\IF.fbx --shadow-technique=embree
+```
+
 The default model path in `main.cpp` is:
 
 ```text

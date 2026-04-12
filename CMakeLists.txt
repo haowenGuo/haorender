@@ -7,9 +7,10 @@ find_package(OpenCV REQUIRED)
 find_package(OpenMP)
 find_package(assimp CONFIG QUIET)
 find_path(EIGEN3_INCLUDE_DIR NAMES Eigen/Core)
-find_package(embree 4 QUIET)
 set(ASSIMP_INCLUDE_DIR "" CACHE PATH "Path to a complete Assimp include directory")
+set(EMBREE_ROOT_DIR "" CACHE PATH "Path to Embree root directory")
 set(EMBREE_INCLUDE_DIR "" CACHE PATH "Path to Embree include directory")
+set(EMBREE_LIBRARY "" CACHE FILEPATH "Path to Embree library file")
 option(HAO_RENDER_DEPTH_HALF "Use Eigen::half for z-buffer and shadow depth buffers" OFF)
 option(HAO_RENDER_VERTEX_HALF "Store loaded mesh vertex attributes as Eigen::half" OFF)
 option(HAO_RENDER_ENABLE_EMBREE "Enable Embree-backed ray tracing features when Embree is available" ON)
@@ -65,6 +66,17 @@ if(HAO_RENDER_VERTEX_HALF)
 endif()
 
 if(HAO_RENDER_ENABLE_EMBREE)
+	if(EMBREE_ROOT_DIR)
+		find_package(embree 4 QUIET CONFIG
+			PATHS
+				"${EMBREE_ROOT_DIR}/lib/cmake/embree-4.4.1"
+				"${EMBREE_ROOT_DIR}/lib/cmake"
+			NO_DEFAULT_PATH)
+	endif()
+	if(NOT embree_FOUND)
+		find_package(embree 4 QUIET CONFIG)
+	endif()
+
 	if(TARGET embree)
 		target_link_libraries(myrender PRIVATE embree)
 		target_compile_definitions(myrender PRIVATE HAO_RENDER_EMBREE)
@@ -72,8 +84,18 @@ if(HAO_RENDER_ENABLE_EMBREE)
 		target_link_libraries(myrender PRIVATE embree4)
 		target_compile_definitions(myrender PRIVATE HAO_RENDER_EMBREE)
 	else()
-		find_path(EMBREE_INCLUDE_DIR NAMES embree4/rtcore.h embree3/rtcore.h)
-		find_library(EMBREE_LIBRARY NAMES embree4 embree3 embree)
+		find_path(EMBREE_INCLUDE_DIR
+			NAMES embree4/rtcore.h embree3/rtcore.h
+			HINTS
+				"${EMBREE_INCLUDE_DIR}"
+				"${EMBREE_ROOT_DIR}"
+				"${EMBREE_ROOT_DIR}/include")
+		find_library(EMBREE_LIBRARY
+			NAMES embree4 embree3 embree
+			HINTS
+				"${EMBREE_LIBRARY}"
+				"${EMBREE_ROOT_DIR}"
+				"${EMBREE_ROOT_DIR}/lib")
 		if(EMBREE_INCLUDE_DIR AND EMBREE_LIBRARY)
 			target_include_directories(myrender PRIVATE ${EMBREE_INCLUDE_DIR})
 			target_link_libraries(myrender PRIVATE ${EMBREE_LIBRARY})
@@ -98,3 +120,29 @@ foreach(OPENCV_RUNTIME_DLL IN LISTS OPENCV_RUNTIME_DLLS)
 			"${OPENCV_RUNTIME_DLL}"
 			"$<TARGET_FILE_DIR:myrender>")
 endforeach()
+
+if(HAO_RENDER_ENABLE_EMBREE)
+	set(EMBREE_RUNTIME_DLLS "")
+	if(EMBREE_ROOT_DIR)
+		file(GLOB EMBREE_RUNTIME_DLLS
+			"${EMBREE_ROOT_DIR}/bin/embree4.dll"
+			"${EMBREE_ROOT_DIR}/bin/tbb12.dll"
+			"${EMBREE_ROOT_DIR}/bin/tbbmalloc.dll")
+	elseif(EMBREE_LIBRARY)
+		get_filename_component(EMBREE_LIBRARY_DIR "${EMBREE_LIBRARY}" DIRECTORY)
+		get_filename_component(EMBREE_ROOT_FROM_LIB "${EMBREE_LIBRARY_DIR}" DIRECTORY)
+		file(GLOB EMBREE_RUNTIME_DLLS
+			"${EMBREE_ROOT_FROM_LIB}/bin/embree4.dll"
+			"${EMBREE_ROOT_FROM_LIB}/bin/tbb12.dll"
+			"${EMBREE_ROOT_FROM_LIB}/bin/tbbmalloc.dll")
+	endif()
+
+	foreach(EMBREE_RUNTIME_DLL IN LISTS EMBREE_RUNTIME_DLLS)
+		if(EXISTS "${EMBREE_RUNTIME_DLL}")
+			add_custom_command(TARGET myrender POST_BUILD
+				COMMAND ${CMAKE_COMMAND} -E copy_if_different
+					"${EMBREE_RUNTIME_DLL}"
+					"$<TARGET_FILE_DIR:myrender>")
+		endif()
+	endforeach()
+endif()

@@ -12,6 +12,8 @@
 #include"render.h"
 #include <chrono>
 #include <string>
+#include <xmmintrin.h>
+#include <pmmintrin.h>
 
 using namespace cv;
 using namespace std;
@@ -103,6 +105,11 @@ void printFrameProfile(const render::FrameProfile& profile) {
         << " ms, imshow=" << profile.imshow_ms
         << " ms" << endl;
 }
+
+void enableFastFpModes() {
+    _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
+    _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+}
 }
 
 static void mouseCallback(int event, int x, int y, int flags, void* userdata) {
@@ -155,6 +162,7 @@ static void mouseCallback(int event, int x, int y, int flags, void* userdata) {
 }
 
 int main(int argc, char** argv) {
+    enableFastFpModes();
 
 	int height = 600;
 	int weight = 800;
@@ -166,8 +174,24 @@ int main(int argc, char** argv) {
     setMouseCallback("main", mouseCallback, NULL);
     auto start = std::chrono::high_resolution_clock::now();
     Model mymodel; 
-   //string modelPath = argc > 1 ? argv[1] : "../Resources/风影/风影.pmx";
-    string modelPath = argc > 1 ? argv[1] : "../Resources/MAIFU/IF.fbx";
+    string modelPath = "../Resources/MAIFU/IF.fbx";
+    ShadowTechnique startupShadowTechnique = ShadowTechnique::ShadowMap;
+    for (int i = 1; i < argc; ++i) {
+        string arg = argv[i];
+        static const string shadowTechniquePrefix = "--shadow-technique=";
+        if (arg.rfind(shadowTechniquePrefix, 0) == 0) {
+            string mode = arg.substr(shadowTechniquePrefix.size());
+            if (mode == "embree" || mode == "raster-embree") {
+                startupShadowTechnique = ShadowTechnique::RasterEmbree;
+            }
+            else {
+                startupShadowTechnique = ShadowTechnique::ShadowMap;
+            }
+        }
+        else if (!arg.empty() && arg[0] != '-') {
+            modelPath = arg;
+        }
+    }
     if (mymodel.modelread(modelPath) != 1) {
         cerr << "模型加载失败: " << modelPath << endl;
         return -1;
@@ -207,6 +231,7 @@ int main(int argc, char** argv) {
     myrender.set_viewport(0.0f, 0.0f, static_cast<float>(weight), static_cast<float>(height));
 
     myrender.openShadow();
+    myrender.setShadowTechnique(startupShadowTechnique);
     printShadowTechnique(myrender);
     start = std::chrono::high_resolution_clock::now();
     myrender.draw_completed(image, mymodel);

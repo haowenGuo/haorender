@@ -89,6 +89,12 @@ cmake --build build-embree --config Release
 .\myrender.exe ..\Resources\MAIFU\IF.fbx
 ```
 
+也可以在启动时直接指定阴影后端：
+
+```powershell
+.\myrender.exe ..\Resources\MAIFU\IF.fbx --shadow-technique=embree
+```
+
 `main.cpp` 中的默认模型路径是：
 
 ```text
