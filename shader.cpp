@@ -85,7 +85,7 @@ Vector3f perspectiveCorrectWeights(const vector<float>& reciprocalWs, const int 
 	return Vector3f(alpha * w0, beta * w1, gamma * w2) / denom;
 }
 
-float sampleShadowVisibility(const MatrixXd& shadowmap, float x, float y, float depth, float bias, int radius) {
+float sampleShadowVisibility(const RenderDepthBuffer& shadowmap, float x, float y, float depth, float bias, int radius) {
 	if (shadowmap.rows() == 0 || shadowmap.cols() == 0) {
 		return 1.0f;
 	}
@@ -102,7 +102,8 @@ float sampleShadowVisibility(const MatrixXd& shadowmap, float x, float y, float 
 		for (int dx = -radius; dx <= radius; ++dx) {
 			int sx = std::clamp(px + dx, 0, static_cast<int>(shadowmap.cols()) - 1);
 			int sy = std::clamp(py + dy, 0, static_cast<int>(shadowmap.rows()) - 1);
-			visibility += (shadowmap(sy, sx) + bias < depth) ? 0.0f : 1.0f;
+			float storedDepth = static_cast<float>(shadowmap(sy, sx));
+			visibility += (storedDepth + bias < depth) ? 0.0f : 1.0f;
 			++samples;
 		}
 	}
@@ -302,7 +303,7 @@ Vector4f ComplexShader::vertexShader(const vertex& vertexs, const Matrix4f& mvp)
 	Vector4f ves_bymvp =  mvp * vertexs.v;
 	return ves_bymvp;
 };
-int ComplexShader::drawTriagle_completed(Mat& im, MatrixXd& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, int indexs[3], float z1, float z2, float z3) {
+int ComplexShader::drawTriagle_completed(Mat& im, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, int indexs[3], float z1, float z2, float z3) {
 	(void)z1;
 	(void)z2;
 	(void)z3;
@@ -337,7 +338,7 @@ int ComplexShader::drawTriagle_completed(Mat& im, MatrixXd& zbuff, int difftextu
 	}
 	return 1;
 };
-int ComplexShader::drawTriagle_clipped(Mat& im, MatrixXd& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, const RasterVertex triangle[3], const TileBounds* tile) {
+int ComplexShader::drawTriagle_clipped(Mat& im, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, const RasterVertex triangle[3], const TileBounds* tile) {
 	int width = im.cols;
 	int height = im.rows;
 	const Vector4f& v0 = triangle[0].screen_position;
@@ -381,11 +382,11 @@ int ComplexShader::drawTriagle_clipped(Mat& im, MatrixXd& zbuff, int difftexture
 
 			Vector3f correctedBc = perspectiveCorrectWeights(triangle, alpha, beta, gamma);
 			float depth = correctedBc[0] * v0[2] + correctedBc[1] * v1[2] + correctedBc[2] * v2[2];
-			if (!std::isfinite(depth) || depth >= zbuff(y, x)) {
+			if (!std::isfinite(depth) || depth >= static_cast<float>(zbuff(y, x))) {
 				continue;
 			}
 
-			zbuff(y, x) = depth;
+			zbuff(y, x) = makeRenderDepth(depth);
 			Vec3b color;
 			fragmentShaderTriangle(correctedBc[0], correctedBc[1], correctedBc[2], color, difftexture, nmtexture, spectexture, baseColorTex, metallicTex, roughnessTex, metallicRoughnessTex, aoTex, emissiveTex, triangle);
 			im.at<Vec3b>(height - y - 1, x) = color;
@@ -1007,7 +1008,7 @@ int ShadowShader::fragmentShader(Vector3f& bc, Vec3b& color) {
 	return 1;
 
 };
-int ShadowShader::drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, MatrixXd& zbuff) {
+int ShadowShader::drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, RenderDepthBuffer& zbuff) {
 	/*
 	if (vertexs.size() > 3 || vertexs.size() <= 0) {
 		cout << "drawTriagle 异常" << endl;
@@ -1041,25 +1042,25 @@ int ShadowShader::drawTriagle( const Vector4f& v0, const Vector4f& v1, const Vec
 			float z = 0.f;
 			z = x0 * v0[2] + y0 * v1[2] + z0 * v2[2];
 			//cout << "z=" << z << endl;
-			if (z >= zbuff(y, x))continue;
-			zbuff(y, x) = z; 
+			if (z >= static_cast<float>(zbuff(y, x)))continue;
+			zbuff(y, x) = makeRenderDepth(z);
 			//cout << "zbuff(y, x) =" << zbuff(y, x) << endl;
 		}
 	}
 	return 1;
 };
-int ShadowShader::drawObject( Model& mymodel, MatrixXd& zbuff) {
+int ShadowShader::drawObject( Model& mymodel, RenderDepthBuffer& zbuff) {
 	
 	for (int i = 0; i < mymodel.meshes.size(); i++) {
 		Mesh& mesh = mymodel.meshes[i];
-		if (mesh.vertices.empty() || mesh.indices.empty()) {
+		if (mesh.vertexCount() == 0 || mesh.indices.empty()) {
 			continue;
 		}
 		positions.clear();
-		positions.resize(mesh.vertices.size());
+		positions.resize(mesh.vertexCount());
 		#pragma omp parallel for
-		for (int j = 0; j < mesh.vertices.size(); j += 1) {
-			vertexShader(mesh.vertices[j].v, j);
+		for (int j = 0; j < static_cast<int>(mesh.vertexCount()); j += 1) {
+			vertexShader(mesh.vertexPosition(j), j);
 
 		}
 

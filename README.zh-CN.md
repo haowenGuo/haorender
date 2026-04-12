@@ -46,6 +46,24 @@ cmake -S . -B build -DEIGEN3_INCLUDE_DIR="path\to\eigen3" -DASSIMP_INCLUDE_DIR="
 cmake --build build --config Release
 ```
 
+如果想实验半精度深度缓冲，可以开启：
+
+```powershell
+cmake -S . -B build-half -DHAO_RENDER_DEPTH_HALF=ON
+cmake --build build-half --config Release
+```
+
+半精度可以降低 ZBuffer 和 shadow map 的内存带宽，但也可能带来深度精度问题。默认构建使用 `float` 深度缓冲，作为更稳的性能基线。
+
+如果想实验半精度顶点存储，可以开启：
+
+```powershell
+cmake -S . -B build-vertex-half -DHAO_RENDER_VERTEX_HALF=ON
+cmake --build build-vertex-half --config Release
+```
+
+这个选项会把加载后的 position、normal、tangent、bitangent、UV 存成 `Eigen::half`，然后在 CPU MVP 和着色路径里转回 `float` 使用。在普通 CPU 上它主要降低顶点内存带宽，不保证矩阵乘法一定更快，除非硬件和编译器能高效执行半精度运算。
+
 ## 运行
 
 进入构建输出目录后运行：

@@ -78,6 +78,18 @@ void applyPbrChannelMap(Model& model, const MaterialPbrChannelMap& map) {
         << " ao=" << map.ao_channel
         << " emissive=" << map.emissive_channel << endl;
 }
+
+void printFrameProfile(const render::FrameProfile& profile) {
+    cout << "[Profiler] clear=" << profile.clear_ms
+        << " ms, shadow near=" << profile.shadow_near_ms
+        << " ms, shadow far=" << profile.shadow_far_ms
+        << " ms, vertex=" << profile.vertex_ms
+        << " ms, clip+bin=" << profile.clip_bin_ms
+        << " ms, raster+shade=" << profile.raster_shade_ms
+        << " ms, render total=" << profile.render_total_ms
+        << " ms, imshow=" << profile.imshow_ms
+        << " ms" << endl;
+}
 }
 
 static void mouseCallback(int event, int x, int y, int flags, void* userdata) {
@@ -181,23 +193,33 @@ int main(int argc, char** argv) {
     myrender.set_view(eye, centre, up);
     myrender.set_viewport(0.0f, 0.0f, static_cast<float>(weight), static_cast<float>(height));
 
-    start = std::chrono::high_resolution_clock::now();
     myrender.openShadow();
+    start = std::chrono::high_resolution_clock::now();
     myrender.draw_completed(image, mymodel);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-    cout << "渲染总执行时间: " << duration.count() << " 毫秒" << endl;
+    auto showStart = std::chrono::high_resolution_clock::now();
     imshow("main", image);
+    auto showEnd = std::chrono::high_resolution_clock::now();
+    render::FrameProfile startupProfile = myrender.getLastProfile();
+    startupProfile.clear_ms = 0.0;
+    startupProfile.imshow_ms = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(showEnd - showStart).count();
+    printFrameProfile(startupProfile);
 
 	//drawTriagle_tga_texture(image, weight, height, vers, texture, zbuff);
     
     while (true) {
         // 显示图像
+        auto clearStart = std::chrono::high_resolution_clock::now();
         myrender.clear(image);
+        auto clearEnd = std::chrono::high_resolution_clock::now();
         myrender.set_view(eye, centre, up);
         myrender.draw_completed(image, mymodel);
+        auto showStartLoop = std::chrono::high_resolution_clock::now();
         imshow("main", image);
+        auto showEndLoop = std::chrono::high_resolution_clock::now();
+        render::FrameProfile frameProfile = myrender.getLastProfile();
+        frameProfile.clear_ms = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(clearEnd - clearStart).count();
+        frameProfile.imshow_ms = std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(showEndLoop - showStartLoop).count();
+        printFrameProfile(frameProfile);
         // 等待按键，超时时间为30毫秒（适用于视频处理）
         int key = waitKey(30) & 0xFF;  // 只取低8位，确保兼容性
 

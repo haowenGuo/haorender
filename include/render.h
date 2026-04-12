@@ -13,41 +13,51 @@ using namespace Eigen;
 shared_ptr<TGAImage> readTga(const char* path);
 class render {
 public:
+	struct FrameProfile {
+		double clear_ms = 0.0;
+		double shadow_near_ms = 0.0;
+		double shadow_far_ms = 0.0;
+		double vertex_ms = 0.0;
+		double clip_bin_ms = 0.0;
+		double raster_shade_ms = 0.0;
+		double imshow_ms = 0.0;
+		double render_total_ms = 0.0;
+	};
 	render(){
 		height = 600;
 		weight = 800;
-		zbuff = MatrixXd(height, weight);
-		zbuff.setConstant(100000000);
+		zbuff = RenderDepthBuffer(height, weight);
+		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	}
 	render(int h,int w):height(h),weight(w) {
-		zbuff = MatrixXd(height, weight);
-		zbuff.setConstant(100000000);
+		zbuff = RenderDepthBuffer(height, weight);
+		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	}
 	render(int height0, int weight0, const char* path) :height(height0), weight(weight0) {
 		texture = readTga(path);
-		zbuff = MatrixXd(height, weight);
-		zbuff.setConstant(100000000);
+		zbuff = RenderDepthBuffer(height, weight);
+		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	}
 	render(int height0, int weight0, const char* path0, const char* path1) :height(height0), weight(weight0) {
 		texture = readTga(path0);
 		nmtexture = readTga(path1);
-		zbuff = MatrixXd(height, weight);
-		zbuff.setConstant(100000000);
+		zbuff = RenderDepthBuffer(height, weight);
+		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	}
 	render(int height0, int weight0, const char* path0, const char* path1, const char* path2) :height(height0), weight(weight0) {
 		texture = readTga(path0);
 		nmtexture = readTga(path1);
 		spectexture = readTga(path2);
-		zbuff = MatrixXd(height, weight);
-		zbuff.setConstant(100000000);
+		zbuff = RenderDepthBuffer(height, weight);
+		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 
 	}
 	render(const render & ren) :height(ren.height), weight(ren.weight) {
 		texture =ren.texture;
 		nmtexture = ren.nmtexture;
 		spectexture = ren.spectexture;
-		zbuff = MatrixXd(height, weight);
-		zbuff.setConstant(100000000);
+		zbuff = RenderDepthBuffer(height, weight);
+		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	}
 	int add_Light(const Vector4f& l);
 	int set_translation(float dx, float dy, float dz);
@@ -66,8 +76,8 @@ public:
 	Matrix4f get_viewport2(float x, float y, float w, float h, float near, float far);
 	//int draw_simple(Mat &image,Model &model);
 	int draw_completed(Mat& image, Model& mymodel);
-	int draw_ShadowTexture(MatrixXd& image, Model& mymodel);
-	int draw_ShadowTexture(MatrixXd& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP);
+	int draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel);
+	int draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP);
 	int clear(Mat& image);
 	int setTexture(const char* path);
 	int setNMTexture(const char* path);
@@ -77,6 +87,7 @@ public:
 	int openShadow() { shadow_on = 1; if (complexshader) complexshader->shadow_on = 1; return 1; };
 	int setSimpleShader();
 	int setComplexShader(const Model& m);
+	const FrameProfile& getLastProfile() const { return last_profile; }
 	int height;
 	int weight;
 	int backcut=1;
@@ -86,7 +97,7 @@ public:
 	int shadow_height = 2048;
 	vector<Vector4f> light_dir;
 	
-	MatrixXd zbuff;
+	RenderDepthBuffer zbuff;
 	Matrix4f model = Matrix4f::Identity();
 	Matrix4f view = Matrix4f::Identity();
 	Matrix4f projection = Matrix4f::Identity();
@@ -96,4 +107,5 @@ public:
 	shared_ptr<TGAImage> texture;
 	shared_ptr<TGAImage> nmtexture ;
 	shared_ptr<TGAImage> spectexture ;
+	FrameProfile last_profile;
 };

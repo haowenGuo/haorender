@@ -25,4 +25,4 @@ int drawTriagle(Mat& im, int weight, int height, const vector<vector<int>>& vers
 int drawTriagle2(Mat& im, int weight, int height, const vector<vector<int>>& ves, const Vec3b& color, Mat &zbuff);
 int drawTriagle_tga_texture(Mat& im, int weight, int height , Mat& mvp,vector<vertex>& ves, TGAImage& texture, Mat& zbuff,Vec3f light_dir);
 int drawTriagle_shader(Mat& im, const vector<vec4>& vertexs, SimpleShader &shader, Mat& zbuff);
-int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, ComplexShader& shader, MatrixXd& zbuff, int difftexture, int nmtexture, int spectexture,int indexs[3]);
+int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, ComplexShader& shader, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture,int indexs[3]);

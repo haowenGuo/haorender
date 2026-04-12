@@ -18,6 +18,31 @@ using namespace std;
 using namespace cv;
 using namespace Eigen;
 constexpr double MY_PI = 3.14159265358979323846;
+
+#ifdef HAO_RENDER_DEPTH_HALF
+using RenderDepthScalar = Eigen::half;
+#else
+using RenderDepthScalar = float;
+#endif
+using RenderDepthBuffer = Eigen::Matrix<RenderDepthScalar, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+constexpr float RENDER_DEPTH_CLEAR = 65504.0f;
+
+inline RenderDepthScalar makeRenderDepth(float value) {
+	return RenderDepthScalar(value);
+}
+
+using RenderVertexHalf4 = Eigen::Matrix<Eigen::half, 4, 1>;
+using RenderVertexHalf2 = Eigen::Matrix<Eigen::half, 2, 1>;
+
+struct PackedHalfVertex {
+	RenderVertexHalf4 v;
+	RenderVertexHalf4 n;
+	RenderVertexHalf4 t;
+	RenderVertexHalf4 b;
+	RenderVertexHalf2 uv;
+	bool has_uv = false;
+};
+
 Mat get_view_matrix(Vec3f eye_pos, Vec3f centre, Vec3f up);
 Mat get_model_matrix( float dx, float dy, float dz);
 Mat get_model_matrix(float angle, const Vec3f& axis);
@@ -311,12 +336,94 @@ public:
 		this->vertices = vertices;
 		this->indices = indices;
 		this->textures = textures;
+#ifdef HAO_RENDER_VERTEX_HALF
+		buildHalfVertices();
+#endif
 	}
 	
 	~Mesh() {
 
 	}
+	void buildHalfVertices() {
+#ifdef HAO_RENDER_VERTEX_HALF
+		vertices_half.clear();
+		vertices_half.reserve(vertices.size());
+		for (const auto& src : vertices) {
+			PackedHalfVertex dst;
+			for (int i = 0; i < 4; ++i) {
+				dst.v[i] = Eigen::half(src.v[i]);
+				dst.n[i] = Eigen::half(src.n[i]);
+				dst.t[i] = Eigen::half(src.t[i]);
+				dst.b[i] = Eigen::half(src.b[i]);
+			}
+			dst.has_uv = !src.textures.empty();
+			Vector2f uv = dst.has_uv ? src.textures[0] : Vector2f(0.f, 0.f);
+			dst.uv[0] = Eigen::half(uv[0]);
+			dst.uv[1] = Eigen::half(uv[1]);
+			vertices_half.push_back(dst);
+		}
+		vertices.clear();
+		vertices.shrink_to_fit();
+#endif
+	}
+	size_t vertexCount() const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		return vertices_half.size();
+#else
+		return vertices.size();
+#endif
+	}
+	bool hasTextureCoords(size_t index) const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		return index < vertices_half.size() && vertices_half[index].has_uv;
+#else
+		return index < vertices.size() && !vertices[index].textures.empty();
+#endif
+	}
+	Vector4f vertexPosition(size_t index) const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		const PackedHalfVertex& src = vertices_half[index];
+		return Vector4f(static_cast<float>(src.v[0]), static_cast<float>(src.v[1]), static_cast<float>(src.v[2]), static_cast<float>(src.v[3]));
+#else
+		return vertices[index].v;
+#endif
+	}
+	Vector4f vertexNormal(size_t index) const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		const PackedHalfVertex& src = vertices_half[index];
+		return Vector4f(static_cast<float>(src.n[0]), static_cast<float>(src.n[1]), static_cast<float>(src.n[2]), static_cast<float>(src.n[3]));
+#else
+		return vertices[index].n;
+#endif
+	}
+	Vector4f vertexTangent(size_t index) const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		const PackedHalfVertex& src = vertices_half[index];
+		return Vector4f(static_cast<float>(src.t[0]), static_cast<float>(src.t[1]), static_cast<float>(src.t[2]), static_cast<float>(src.t[3]));
+#else
+		return vertices[index].t;
+#endif
+	}
+	Vector4f vertexBitangent(size_t index) const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		const PackedHalfVertex& src = vertices_half[index];
+		return Vector4f(static_cast<float>(src.b[0]), static_cast<float>(src.b[1]), static_cast<float>(src.b[2]), static_cast<float>(src.b[3]));
+#else
+		return vertices[index].b;
+#endif
+	}
+	Vector2f vertexUV(size_t index) const {
+#ifdef HAO_RENDER_VERTEX_HALF
+		const PackedHalfVertex& src = vertices_half[index];
+		return Vector2f(static_cast<float>(src.uv[0]), static_cast<float>(src.uv[1]));
+#else
+		return hasTextureCoords(index) ? vertices[index].textures[0] : Vector2f(0.f, 0.f);
+#endif
+	}
 	vector<vertex> vertices;
+#ifdef HAO_RENDER_VERTEX_HALF
+	vector<PackedHalfVertex> vertices_half;
+#endif
 	vector<unsigned int> indices;
 	vector<texture>      textures;
 	MaterialPbrChannelMap pbr_channel_map;

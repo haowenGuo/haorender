@@ -5,6 +5,14 @@
 #include <chrono>
 #include <thread>
 #include <algorithm>
+
+namespace {
+double durationMs(const std::chrono::high_resolution_clock::time_point& start,
+	const std::chrono::high_resolution_clock::time_point& end) {
+	return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
+}
+}
+
 shared_ptr<TGAImage>  readTga(const char* path) {
 	shared_ptr<TGAImage>image=make_shared<TGAImage>();
 
@@ -187,8 +195,8 @@ Matrix4f render::get_viewport2(float x, float y, float w, float h,float near, fl
 
 int render::clear(Mat& image) {
 	image = Mat::Mat(height, weight, CV_8UC3, Scalar(155, 155, 155));
-	zbuff = MatrixXd(height, weight );
-	zbuff.setConstant(100000000);
+	zbuff = RenderDepthBuffer(height, weight );
+	zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	return 1;
 }
 
@@ -209,8 +217,8 @@ int render::setComplexShader(const Model& m ) {
 	size_t maxsize = 0;
 	int size = 0;
 	for (int i = 0; i < m.meshes.size(); i++) {
-		maxsize = max(maxsize, m.meshes[i].vertices.size());
-		size += m.meshes[i].vertices.size();
+		maxsize = max(maxsize, m.meshes[i].vertexCount());
+		size += static_cast<int>(m.meshes[i].vertexCount());
 	}
 	cout << "顶点数=" << size << endl;
 	complexshader->positions.resize(maxsize);
@@ -226,7 +234,7 @@ int render::setComplexShader(const Model& m ) {
 	return 1;
 
 }
-int render::draw_ShadowTexture(MatrixXd& image, Model& mymodel) {
+int render::draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel) {
 	/**/
 	shared_ptr<ShadowShader> sshader=make_shared<ShadowShader>();
 	//MatrixXd zbuff = MatrixXd(image.get_height(), image.get_width());
@@ -251,7 +259,7 @@ int render::draw_ShadowTexture(MatrixXd& image, Model& mymodel) {
 
 	return 1;
 };
-int render::draw_ShadowTexture(MatrixXd& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP) {
+int render::draw_ShadowTexture(RenderDepthBuffer& image, Model& mymodel, float extent, float depth, Matrix4f& outLV, Matrix4f& outLP, Matrix4f& outLVP) {
 	shared_ptr<ShadowShader> sshader = make_shared<ShadowShader>();
 	for (int i = 0; i < light_dir.size(); i++) {
 		Vector3f lightForward = light_dir[i].head<3>().normalized();
@@ -274,13 +282,21 @@ int render::draw_ShadowTexture(MatrixXd& image, Model& mymodel, float extent, fl
 int	render::draw_completed(Mat& image, Model& mymodel) {
 	int size = 0;
 	if (complexshader == nullptr) { cout<<"没有设置正确的着色器" << endl; return -1; }
+	last_profile.shadow_near_ms = 0.0;
+	last_profile.shadow_far_ms = 0.0;
+	last_profile.vertex_ms = 0.0;
+	last_profile.clip_bin_ms = 0.0;
+	last_profile.raster_shade_ms = 0.0;
 	/*
 	for (int i = 0; i < light_dir.size(); i++) {
 		complexshader->addLight(light_dir[i]);
 	}*/
+	auto renderStart = std::chrono::high_resolution_clock::now();
 	if (shadow_on) {
-		MatrixXd shadow_map_near = MatrixXd::Ones(shadow_height, shadow_width);
-		MatrixXd shadow_map_far = MatrixXd::Ones(shadow_height, shadow_width);
+		RenderDepthBuffer shadow_map_near(shadow_height, shadow_width);
+		RenderDepthBuffer shadow_map_far(shadow_height, shadow_width);
+		shadow_map_near.setConstant(makeRenderDepth(1.0f));
+		shadow_map_far.setConstant(makeRenderDepth(1.0f));
 		//shadow_map.height = image.rows;
 		//shadow_map.width = image.cols;
 		//ShadowShader sh;
@@ -290,8 +306,14 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		Matrix4f lvFar = Matrix4f::Identity();
 		Matrix4f lpFar = Matrix4f::Identity();
 		Matrix4f lvpFar = Matrix4f::Identity();
+		auto shadowNearStart = std::chrono::high_resolution_clock::now();
 		draw_ShadowTexture(shadow_map_near, mymodel, 1.6f, 3.0f, lvNear, lpNear, lvpNear);
+		auto shadowNearEnd = std::chrono::high_resolution_clock::now();
+		last_profile.shadow_near_ms = durationMs(shadowNearStart, shadowNearEnd);
+		auto shadowFarStart = std::chrono::high_resolution_clock::now();
 		draw_ShadowTexture(shadow_map_far, mymodel, 4.0f, 8.0f, lvFar, lpFar, lvpFar);
+		auto shadowFarEnd = std::chrono::high_resolution_clock::now();
+		last_profile.shadow_far_ms = durationMs(shadowFarStart, shadowFarEnd);
 		complexshader->shadowmap_near = move(shadow_map_near);
 		complexshader->shadowmap_far = move(shadow_map_far);
 		complexshader->uniform_LV_near = lvNear;
@@ -326,17 +348,16 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	}
 	Matrix4f  mvp = viewport * projection * view * model;
 	//Matrix4f  mvp = viewport;
-	auto start = std::chrono::high_resolution_clock::now();
 	vector<Vector4f> vers;
 	vers.resize(3);
 	const int tileSize = 32;
 
 	for (int i = 0; i < mymodel.meshes.size(); i++) {
 		Mesh& mesh = mymodel.meshes[i];
-		if (mesh.vertices.empty() || mesh.indices.empty()) {
+		if (mesh.vertexCount() == 0 || mesh.indices.empty()) {
 			continue;
 		}
-		bool hasTextureCoords = !mesh.vertices[mesh.indices[0]].textures.empty();
+		bool hasTextureCoords = mesh.hasTextureCoords(mesh.indices[0]);
 #ifdef _OPENMP
 		int threadCount = static_cast<int>(std::thread::hardware_concurrency());
 		if (threadCount > 0) {
@@ -344,19 +365,22 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		}
 #endif
 		if (shadow_on) {
-			complexshader->shadowpositions.resize(mesh.vertices.size());
-			complexshader->shadowpositions_near.resize(mesh.vertices.size());
-			complexshader->shadowpositions_far.resize(mesh.vertices.size());
+			complexshader->shadowpositions.resize(mesh.vertexCount());
+			complexshader->shadowpositions_near.resize(mesh.vertexCount());
+			complexshader->shadowpositions_far.resize(mesh.vertexCount());
 		}
+		auto vertexStart = std::chrono::high_resolution_clock::now();
 		#pragma omp parallel for
-		for (int j = 0; j < mesh.vertices.size(); j += 1) {
+		for (int j = 0; j < static_cast<int>(mesh.vertexCount()); j += 1) {
 			if (hasTextureCoords) {
-				complexshader->vertexShader2(mesh.vertices[j].v, mesh.vertices[j].textures[0], mesh.vertices[j].n, mesh.vertices[j].t, mesh.vertices[j].b, mvp, j);
+				complexshader->vertexShader2(mesh.vertexPosition(j), mesh.vertexUV(j), mesh.vertexNormal(j), mesh.vertexTangent(j), mesh.vertexBitangent(j), mvp, j);
 			}
 			else {
-				complexshader->vertexShader2(mesh.vertices[j].v, Vector2f(0.f,0.f), mesh.vertices[j].n, mesh.vertices[j].t, mesh.vertices[j].b, mvp, j);
+				complexshader->vertexShader2(mesh.vertexPosition(j), Vector2f(0.f,0.f), mesh.vertexNormal(j), mesh.vertexTangent(j), mesh.vertexBitangent(j), mvp, j);
 			}
 		}
+		auto vertexEnd = std::chrono::high_resolution_clock::now();
+		last_profile.vertex_ms += durationMs(vertexStart, vertexEnd);
 
 		int difftexture = -1, nmtexture = -1, spectexture = -1;
 		int baseColorTex = -1, metallicTex = -1, roughnessTex = -1, metallicRoughnessTex = -1, aoTex = -1, emissiveTex = -1;
@@ -394,6 +418,7 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		struct RasterTriangle {
 			ComplexShader::RasterVertex v[3];
 		};
+		auto clipBinStart = std::chrono::high_resolution_clock::now();
 		vector<RasterTriangle> triangles;
 		triangles.reserve(mesh.indices.size() / 3);
 
@@ -453,7 +478,10 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 				}
 			}
 		}
+		auto clipBinEnd = std::chrono::high_resolution_clock::now();
+		last_profile.clip_bin_ms += durationMs(clipBinStart, clipBinEnd);
 
+		auto rasterStart = std::chrono::high_resolution_clock::now();
 		#pragma omp parallel for schedule(dynamic)
 		for (int tile = 0; tile < tilesX * tilesY; ++tile) {
 			int tx = tile % tilesX;
@@ -467,12 +495,11 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 				complexshader->drawTriagle_clipped(image, zbuff, difftexture, nmtexture, spectexture, baseColorTex, metallicTex, roughnessTex, metallicRoughnessTex, aoTex, emissiveTex, triangles[triIndex].v, &bounds);
 			}
 		}
+		auto rasterEnd = std::chrono::high_resolution_clock::now();
+		last_profile.raster_shade_ms += durationMs(rasterStart, rasterEnd);
 	}
 	//cout << "size =" << size << endl;
-	auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-	//std::cout << "顶点变换+法线，纹理总执行时间: " << duration.count() << " 毫秒" << std::endl;
-	//std::cout << "法线，纹理总执行时间: " << duration1.count() * mymodel.meshes.size()* t2 << " 毫秒" << std::endl;
-	std::cout << "渲染总执行时间: " << duration.count() << " 毫秒" << std::endl;
+	auto renderEnd = std::chrono::high_resolution_clock::now();
+	last_profile.render_total_ms = durationMs(renderStart, renderEnd);
 	return 1;
 }

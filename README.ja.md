@@ -46,6 +46,24 @@ cmake -S . -B build -DEIGEN3_INCLUDE_DIR="path\to\eigen3" -DASSIMP_INCLUDE_DIR="
 cmake --build build --config Release
 ```
 
+Z バッファとシャドウマップで半精度深度を試す場合は、次のオプションを有効にします。
+
+```powershell
+cmake -S . -B build-half -DHAO_RENDER_DEPTH_HALF=ON
+cmake --build build-half --config Release
+```
+
+半精度はメモリ帯域を削減できますが、深度精度のアーティファクトが増える可能性があります。デフォルトのビルドでは、より安全な性能基準として `float` 深度バッファを使用します。
+
+頂点データの半精度格納を試す場合は、次のオプションを有効にします。
+
+```powershell
+cmake -S . -B build-vertex-half -DHAO_RENDER_VERTEX_HALF=ON
+cmake --build build-vertex-half --config Release
+```
+
+このオプションでは、読み込んだ position、normal、tangent、bitangent、UV を `Eigen::half` として格納し、CPU の MVP 計算とシェーディングでは `float` に戻して使用します。一般的な CPU では主に頂点メモリ帯域の削減が目的であり、ハードウェアとコンパイラが半精度演算を効率よく実行できない限り、行列乗算が必ず高速化するとは限りません。
+
 ## 実行
 
 ビルド出力ディレクトリで実行します。

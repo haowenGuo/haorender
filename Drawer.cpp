@@ -337,7 +337,7 @@ int drawTriagle_shader(Mat& im,const vector<vec4>& vertexs, SimpleShader& shader
 	return 1;
 };
 
-int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, ComplexShader& shader, MatrixXd& zbuff, int difftexture, int nmtexture, int spectexture,int indexs[3]) {
+int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const Vector4f& v2, ComplexShader& shader, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture,int indexs[3]) {
 	/*
 	if (vertexs.size() > 3 || vertexs.size() <= 0) {
 		cout << "drawTriagle 异常" << endl;
@@ -366,8 +366,8 @@ int drawTriagle_completed(Mat& im, const Vector4f& v0, const Vector4f& v1, const
 			float z = 0;
 			//z += 5.f * 2.f; z += 5.f * 2.f; z += 5.f * 2.f;
 			z = x0 * v0[2] + y0 * v1[2] + z0 * v2[2];
-			if (z >= zbuff(y, x))continue;
-			zbuff(y, x) = z;
+			if (z >= static_cast<float>(zbuff(y, x)))continue;
+			zbuff(y, x) = makeRenderDepth(z);
 			Vec3b color;
 
 			shader.fragmentShader3(x0, y0, z0, color, difftexture, nmtexture, spectexture,indexs);

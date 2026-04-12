@@ -46,6 +46,24 @@ cmake -S . -B build -DEIGEN3_INCLUDE_DIR="path\to\eigen3" -DASSIMP_INCLUDE_DIR="
 cmake --build build --config Release
 ```
 
+To experiment with half-precision depth buffers for the z-buffer and shadow maps:
+
+```powershell
+cmake -S . -B build-half -DHAO_RENDER_DEPTH_HALF=ON
+cmake --build build-half --config Release
+```
+
+Half precision can reduce memory bandwidth, but it may also increase depth artifacts. The default build uses `float` depth buffers as the safer performance baseline.
+
+To experiment with half-precision vertex storage:
+
+```powershell
+cmake -S . -B build-vertex-half -DHAO_RENDER_VERTEX_HALF=ON
+cmake --build build-vertex-half --config Release
+```
+
+This stores loaded mesh position, normal, tangent, bitangent, and UV data in `Eigen::half`, then converts them back to `float` for the CPU MVP and shading path. On CPUs this mainly reduces vertex memory bandwidth; it does not guarantee faster matrix multiplication unless the hardware/compiler can execute half arithmetic efficiently.
+
 ## Run
 
 From the build output directory:

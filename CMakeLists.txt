@@ -8,6 +8,8 @@ find_package(OpenMP)
 find_package(assimp CONFIG QUIET)
 find_path(EIGEN3_INCLUDE_DIR NAMES Eigen/Core)
 set(ASSIMP_INCLUDE_DIR "" CACHE PATH "Path to a complete Assimp include directory")
+option(HAO_RENDER_DEPTH_HALF "Use Eigen::half for z-buffer and shadow depth buffers" OFF)
+option(HAO_RENDER_VERTEX_HALF "Store loaded mesh vertex attributes as Eigen::half" OFF)
 
 if(NOT (ASSIMP_INCLUDE_DIR
 	AND EXISTS "${ASSIMP_INCLUDE_DIR}/assimp/config.h"
@@ -49,6 +51,14 @@ endif()
 
 if(OpenMP_CXX_FOUND)
 	target_link_libraries(myrender PRIVATE OpenMP::OpenMP_CXX)
+endif()
+
+if(HAO_RENDER_DEPTH_HALF)
+	target_compile_definitions(myrender PRIVATE HAO_RENDER_DEPTH_HALF)
+endif()
+
+if(HAO_RENDER_VERTEX_HALF)
+	target_compile_definitions(myrender PRIVATE HAO_RENDER_VERTEX_HALF)
 endif()
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/assimp-vc143-mtd.dll")
