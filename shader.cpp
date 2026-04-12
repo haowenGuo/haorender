@@ -117,6 +117,15 @@ struct ClipPlane {
 	float d;
 };
 
+const ClipPlane kFrustumPlanes[] = {
+	{ 1.0f, 0.0f, 0.0f, 1.0f },
+	{ -1.0f, 0.0f, 0.0f, 1.0f },
+	{ 0.0f, 1.0f, 0.0f, 1.0f },
+	{ 0.0f, -1.0f, 0.0f, 1.0f },
+	{ 0.0f, 0.0f, 1.0f, 1.0f },
+	{ 0.0f, 0.0f, -1.0f, 1.0f }
+};
+
 float planeEval(const ClipPlane& plane, const ComplexShader::RasterVertex& vertex) {
 	const Vector4f& p = vertex.clip_position;
 	return plane.a * p[0] + plane.b * p[1] + plane.c * p[2] + plane.d * p[3];
@@ -150,10 +159,10 @@ void finalizeRasterVertex(ComplexShader::RasterVertex& vertex, int width, int he
 	}
 }
 
-vector<ComplexShader::RasterVertex> clipAgainstPlane(const vector<ComplexShader::RasterVertex>& input, const ClipPlane& plane) {
-	vector<ComplexShader::RasterVertex> output;
+void clipAgainstPlane(const vector<ComplexShader::RasterVertex>& input, const ClipPlane& plane, vector<ComplexShader::RasterVertex>& output) {
+	output.clear();
 	if (input.empty()) {
-		return output;
+		return;
 	}
 	output.reserve(input.size() + 1);
 
@@ -177,32 +186,57 @@ vector<ComplexShader::RasterVertex> clipAgainstPlane(const vector<ComplexShader:
 		}
 	}
 
-	return output;
 }
 
-vector<ComplexShader::RasterVertex> clipAgainstFrustum(const ComplexShader::RasterVertex triangle[3], int width, int height) {
-	vector<ComplexShader::RasterVertex> poly(triangle, triangle + 3);
-	const ClipPlane planes[] = {
-		{ 1.0f, 0.0f, 0.0f, 1.0f },   // left: x + w >= 0
-		{ -1.0f, 0.0f, 0.0f, 1.0f },  // right: -x + w >= 0
-		{ 0.0f, 1.0f, 0.0f, 1.0f },   // bottom: y + w >= 0
-		{ 0.0f, -1.0f, 0.0f, 1.0f },  // top: -y + w >= 0
-		{ 0.0f, 0.0f, 1.0f, 1.0f },   // near: z + w >= 0
-		{ 0.0f, 0.0f, -1.0f, 1.0f }   // far: -z + w >= 0
-	};
+bool clipAgainstFrustum(const ComplexShader::RasterVertex triangle[3], int width, int height, vector<ComplexShader::RasterVertex>& poly, vector<ComplexShader::RasterVertex>& scratch) {
+	poly.assign(triangle, triangle + 3);
+	scratch.clear();
 
-	for (const auto& plane : planes) {
-		poly = clipAgainstPlane(poly, plane);
-		if (poly.size() < 3) {
-			return {};
+	for (const auto& plane : kFrustumPlanes) {
+		clipAgainstPlane(poly, plane, scratch);
+		if (scratch.size() < 3) {
+			poly.clear();
+			return false;
 		}
+		poly.swap(scratch);
 	}
 
 	for (auto& v : poly) {
 		finalizeRasterVertex(v, width, height);
 	}
+	return true;
+}
 
-	return poly;
+bool triangleOutsideFrustum(const ComplexShader::RasterVertex triangle[3]) {
+	for (const auto& plane : kFrustumPlanes) {
+		bool outside = true;
+		for (int i = 0; i < 3; ++i) {
+			if (triangle[i].clip_position[3] > 1e-6f && planeEval(plane, triangle[i]) >= 0.0f) {
+				outside = false;
+				break;
+			}
+		}
+		if (outside) {
+			return true;
+		}
+	}
+	return false;
+}
+
+bool triangleFullyInsideFrustum(const ComplexShader::RasterVertex triangle[3]) {
+	for (int i = 0; i < 3; ++i) {
+		if (triangle[i].clip_position[3] <= 1e-6f) {
+			return false;
+		}
+	}
+	for (const auto& plane : kFrustumPlanes) {
+		for (int i = 0; i < 3; ++i) {
+			if (planeEval(plane, triangle[i]) < 0.0f) {
+				return false;
+			}
+		}
+	}
+	return true;
 }
 
 Vector3f perspectiveCorrectWeights(const ComplexShader::RasterVertex triangle[3], float alpha, float beta, float gamma) {
@@ -324,8 +358,11 @@ int ComplexShader::drawTriagle_completed(Mat& im, RenderDepthBuffer& zbuff, int 
 		inputTriangle[i].reciprocal_w = reciprocal_ws[index];
 	}
 
-	vector<RasterVertex> clippedPolygon = clipAgainstFrustum(inputTriangle, im.cols, im.rows);
-	if (clippedPolygon.size() < 3) {
+	vector<RasterVertex> clippedPolygon;
+	vector<RasterVertex> clipScratch;
+	clippedPolygon.reserve(8);
+	clipScratch.reserve(8);
+	if (!clipAgainstFrustum(inputTriangle, im.cols, im.rows, clippedPolygon, clipScratch)) {
 		return 0;
 	}
 
@@ -412,8 +449,24 @@ int ComplexShader::buildClippedTriangles(const int indexs[3], int width, int hei
 		inputTriangle[i].reciprocal_w = reciprocal_ws[index];
 	}
 
-	vector<RasterVertex> clippedPolygon = clipAgainstFrustum(inputTriangle, width, height);
-	if (clippedPolygon.size() < 3) {
+	if (triangleOutsideFrustum(inputTriangle)) {
+		return 0;
+	}
+
+	if (triangleFullyInsideFrustum(inputTriangle)) {
+		std::array<RasterVertex, 3> tri = { inputTriangle[0], inputTriangle[1], inputTriangle[2] };
+		for (auto& v : tri) {
+			finalizeRasterVertex(v, width, height);
+		}
+		out.push_back(tri);
+		return 1;
+	}
+
+	vector<RasterVertex> clippedPolygon;
+	vector<RasterVertex> clipScratch;
+	clippedPolygon.reserve(8);
+	clipScratch.reserve(8);
+	if (!clipAgainstFrustum(inputTriangle, width, height, clippedPolygon, clipScratch)) {
 		return 0;
 	}
 
@@ -423,13 +476,13 @@ int ComplexShader::buildClippedTriangles(const int indexs[3], int width, int hei
 	}
 	return 1;
 }
-int ComplexShader::vertexShader2(const Vector4f& position0, const Vector2f& uv0, const Vector4f& n0, const Vector4f& t0, const Vector4f& b0, const Matrix4f& mvp, int t) {
-	Vector4f clipPosition = uniform_P * uniform_V * uniform_M * position0;
+int ComplexShader::vertexShader2(const Vector4f& position0, const Vector2f& uv0, const Vector4f& n0, const Vector4f& t0, const Vector4f& b0, const Matrix4f& screen_mvp, const Matrix4f& clip_mvp, const Matrix4f& view_model, int t) {
+	Vector4f clipPosition = clip_mvp * position0;
 	float clipW = clipPosition[3];
 	reciprocal_ws[t] = std::abs(clipW) > 1e-8f ? 1.0f / clipW : 1.0f;
 	clip_positions[t] = clipPosition;
-	positions[t].noalias() = mvp * position0;
-	Vector4f viewPos = uniform_V * uniform_M * position0;
+	positions[t].noalias() = screen_mvp * position0;
+	Vector4f viewPos = view_model * position0;
 	view_positions[t] = viewPos.head<3>();
 	
 	if (shadow_on)

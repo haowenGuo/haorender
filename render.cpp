@@ -346,7 +346,9 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	for (int i = 0; i < complexshader->light_dirs.size(); i++) {
 		complexshader->light_dirs[i]=view* light_dir[i];
 	}
-	Matrix4f  mvp = viewport * projection * view * model;
+	Matrix4f  viewModel = view * model;
+	Matrix4f  clipMvp = projection * viewModel;
+	Matrix4f  mvp = viewport * clipMvp;
 	//Matrix4f  mvp = viewport;
 	vector<Vector4f> vers;
 	vers.resize(3);
@@ -373,10 +375,10 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		#pragma omp parallel for
 		for (int j = 0; j < static_cast<int>(mesh.vertexCount()); j += 1) {
 			if (hasTextureCoords) {
-				complexshader->vertexShader2(mesh.vertexPosition(j), mesh.vertexUV(j), mesh.vertexNormal(j), mesh.vertexTangent(j), mesh.vertexBitangent(j), mvp, j);
+				complexshader->vertexShader2(mesh.vertexPosition(j), mesh.vertexUV(j), mesh.vertexNormal(j), mesh.vertexTangent(j), mesh.vertexBitangent(j), mvp, clipMvp, viewModel, j);
 			}
 			else {
-				complexshader->vertexShader2(mesh.vertexPosition(j), Vector2f(0.f,0.f), mesh.vertexNormal(j), mesh.vertexTangent(j), mesh.vertexBitangent(j), mvp, j);
+				complexshader->vertexShader2(mesh.vertexPosition(j), Vector2f(0.f,0.f), mesh.vertexNormal(j), mesh.vertexTangent(j), mesh.vertexBitangent(j), mvp, clipMvp, viewModel, j);
 			}
 		}
 		auto vertexEnd = std::chrono::high_resolution_clock::now();
@@ -421,6 +423,8 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		auto clipBinStart = std::chrono::high_resolution_clock::now();
 		vector<RasterTriangle> triangles;
 		triangles.reserve(mesh.indices.size() / 3);
+		vector<std::array<ComplexShader::RasterVertex, 3>> clipped;
+		clipped.reserve(4);
 
 		for (int j = 0; j < mesh.indices.size(); j += 3) {
 			if (backcut) {
@@ -441,7 +445,7 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 			}
 
 			int indexs[3] = { static_cast<int>(mesh.indices[j]) ,static_cast<int>(mesh.indices[j + 1]) ,static_cast<int>(mesh.indices[j + 2]) };
-			vector<std::array<ComplexShader::RasterVertex, 3>> clipped;
+			clipped.clear();
 			complexshader->buildClippedTriangles(indexs, image.cols, image.rows, clipped);
 			for (const auto& tri : clipped) {
 				RasterTriangle outTri;
@@ -456,7 +460,14 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		int height = image.rows;
 		int tilesX = (width + tileSize - 1) / tileSize;
 		int tilesY = (height + tileSize - 1) / tileSize;
-		vector<vector<int>> bins(tilesX * tilesY);
+		int tileCount = tilesX * tilesY;
+		if (static_cast<int>(tile_bins_cache.size()) != tileCount) {
+			tile_bins_cache.clear();
+			tile_bins_cache.resize(tileCount);
+		}
+		for (auto& bin : tile_bins_cache) {
+			bin.clear();
+		}
 		for (int t = 0; t < static_cast<int>(triangles.size()); ++t) {
 			const Vector4f& v0 = triangles[t].v[0].screen_position;
 			const Vector4f& v1 = triangles[t].v[1].screen_position;
@@ -474,7 +485,7 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 			int tileMaxY = maxy / tileSize;
 			for (int ty = tileMinY; ty <= tileMaxY; ++ty) {
 				for (int tx = tileMinX; tx <= tileMaxX; ++tx) {
-					bins[ty * tilesX + tx].push_back(t);
+					tile_bins_cache[ty * tilesX + tx].push_back(t);
 				}
 			}
 		}
@@ -483,7 +494,7 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 
 		auto rasterStart = std::chrono::high_resolution_clock::now();
 		#pragma omp parallel for schedule(dynamic)
-		for (int tile = 0; tile < tilesX * tilesY; ++tile) {
+		for (int tile = 0; tile < tileCount; ++tile) {
 			int tx = tile % tilesX;
 			int ty = tile / tilesX;
 			ComplexShader::TileBounds bounds;
@@ -491,7 +502,7 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 			bounds.miny = ty * tileSize;
 			bounds.maxx = std::min(width - 1, (tx + 1) * tileSize - 1);
 			bounds.maxy = std::min(height - 1, (ty + 1) * tileSize - 1);
-			for (int triIndex : bins[tile]) {
+			for (int triIndex : tile_bins_cache[tile]) {
 				complexshader->drawTriagle_clipped(image, zbuff, difftexture, nmtexture, spectexture, baseColorTex, metallicTex, roughnessTex, metallicRoughnessTex, aoTex, emissiveTex, triangles[triIndex].v, &bounds);
 			}
 		}

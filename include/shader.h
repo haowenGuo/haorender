@@ -124,7 +124,7 @@ public:
 	int drawTriagle_completed(Mat& im, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, int indexs[3], float z0, float z1, float z2);
 	int drawTriagle_clipped(Mat& im, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, const RasterVertex triangle[3], const TileBounds* tile);
 	int buildClippedTriangles(const int indexs[3], int width, int height, std::vector<std::array<RasterVertex, 3>>& out);
-	int vertexShader2(const Vector4f& position0, const Vector2f& uv0, const Vector4f& n0, const Vector4f& t0, const Vector4f& b0, const Matrix4f& mvp, int t);
+	int vertexShader2(const Vector4f& position0, const Vector2f& uv0, const Vector4f& n0, const Vector4f& t0, const Vector4f& b0, const Matrix4f& screen_mvp, const Matrix4f& clip_mvp, const Matrix4f& view_model, int t);
 	int fragmentShader(Vector3f& bc, Vec3b& color, int difftexture, int nmtexture, int spectexture);
 	int fragmentShader2(Vector3f& bc, Vec3b& color, int difftexture, int nmtexture, int spectexture);
 	int fragmentShader3(float x, float y, float z , Vec3b& color, int difftexture, int nmtexture, int spectexture, int indexs[3]);

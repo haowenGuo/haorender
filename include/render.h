@@ -108,4 +108,5 @@ public:
 	shared_ptr<TGAImage> nmtexture ;
 	shared_ptr<TGAImage> spectexture ;
 	FrameProfile last_profile;
+	vector<vector<int>> tile_bins_cache;
 };
