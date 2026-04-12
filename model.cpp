@@ -145,17 +145,22 @@ int Model::processNode(aiNode* node, const aiScene* scene) {
 	return 1;
 }
 int Model::TextureFromFile(const char* path, const string directory) {
-	string imagePath = string(path);
-	bool isAbsolute = imagePath.size() > 1 && imagePath[1] == ':';
-	isAbsolute = isAbsolute || (!imagePath.empty() && (imagePath[0] == '/' || imagePath[0] == '\\'));
+	namespace fs = std::filesystem;
+	fs::path imagePath = fs::path(path);
+	bool isAbsolute = imagePath.is_absolute();
 	if (!isAbsolute) {
-		imagePath = directory + '/' + imagePath;
+		imagePath = fs::path(directory) / imagePath;
+	}
+	string imagePathKey = imagePath.lexically_normal().generic_string();
+	auto cacheIt = texture_cache.find(imagePathKey);
+	if (cacheIt != texture_cache.end()) {
+		return cacheIt->second;
 	}
 	int width, height, channels;
 
 	// 加载图像
 	unsigned char* imageData = stbi_load(
-		imagePath.c_str(),  // 图像路径
+		imagePathKey.c_str(),  // 图像路径
 		&width,             // 宽度指针
 		&height,            // 高度指针
 		&channels,          // 通道数指针
@@ -164,13 +169,13 @@ int Model::TextureFromFile(const char* path, const string directory) {
 
 	// 检查图像是否成功加载
 	if (imageData == nullptr) {
-		std::cerr << "无法加载图像: " << imagePath << std::endl;
+		std::cerr << "无法加载图像: " << imagePathKey << std::endl;
 		std::cerr << "错误: " << stbi_failure_reason() << std::endl;
 		return -1;
 	}
 
 	// 输出图像信息
-	std::cout << "成功加载图像: " << imagePath << std::endl;
+	std::cout << "成功加载图像: " << imagePathKey << std::endl;
 	std::cout << "宽度: " << width << " 像素" << std::endl;
 	std::cout << "高度: " << height << " 像素" << std::endl;
 	std::cout << "通道数: " << channels << std::endl;
@@ -179,10 +184,13 @@ int Model::TextureFromFile(const char* path, const string directory) {
 	images.push_back(move(ima)) ;
 	stbi_image_free(imageData);
 	// 释放图像数据
-	return images.size()-1;
+	int textureId = static_cast<int>(images.size()) - 1;
+	texture_cache[imagePathKey] = textureId;
+	return textureId;
 }
 vector<texture> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type, string typeName)
 {
+	namespace fs = std::filesystem;
 	vector<texture> textures;
 	for (int i = 0; i < mat->GetTextureCount(type); i++)
 	{
@@ -196,6 +204,7 @@ vector<texture> Model::loadMaterialTextures(aiMaterial* mat, aiTextureType type,
 		cout << "[Material] " << typeName << " -> " << str.C_Str() << " (id=" << texture0.id << ")" << endl;
 		//cout << "id=" << texture0.id << endl;
 		texture0.type = typeName;
+		texture0.path = fs::path(str.C_Str()).lexically_normal().generic_string();
 		//texture0.path = str;
 		textures.push_back(texture0);
 	}
@@ -295,6 +304,20 @@ Mesh Model::processMesh(aiMesh* mesh, const aiScene* scene)
 		vector<texture> aoMaps = this->loadMaterialTextures(material,
 			aiTextureType_AMBIENT_OCCLUSION, "texture_ao");
 		textures.insert(textures.end(), aoMaps.begin(), aoMaps.end());
+		if (aoMaps.empty() && !metallicMaps.empty() && !roughnessMaps.empty()) {
+			for (const auto& metallicMap : metallicMaps) {
+				for (const auto& roughnessMap : roughnessMaps) {
+					if (!metallicMap.path.empty() && metallicMap.path == roughnessMap.path) {
+						texture packedAo = metallicMap;
+						packedAo.type = "texture_ao";
+						textures.push_back(packedAo);
+						cout << "[Material] texture_ao -> " << packedAo.path << " (packed ORM fallback, id=" << packedAo.id << ")" << endl;
+						goto packed_ao_done;
+					}
+				}
+			}
+		}
+packed_ao_done:
 		vector<texture> emissiveMaps = this->loadMaterialTextures(material,
 			aiTextureType_EMISSIVE, "texture_emissive");
 		textures.insert(textures.end(), emissiveMaps.begin(), emissiveMaps.end());

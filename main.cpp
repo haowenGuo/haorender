@@ -12,6 +12,7 @@
 #include"render.h"
 #include <chrono>
 #include <string>
+#include <sstream>
 #include <xmmintrin.h>
 #include <pmmintrin.h>
 
@@ -109,6 +110,26 @@ void printFrameProfile(const render::FrameProfile& profile) {
 void enableFastFpModes() {
     _MM_SET_FLUSH_ZERO_MODE(_MM_FLUSH_ZERO_ON);
     _MM_SET_DENORMALS_ZERO_MODE(_MM_DENORMALS_ZERO_ON);
+}
+
+void drawStatusOverlay(Mat& image, const render& renderer) {
+    std::ostringstream oss;
+    oss << "Shadow: " << renderer.shadowTechniqueName()
+        << " | Embree: " << (renderer.embreeAvailable() ? "ON" : "OFF");
+    if (renderer.getShadowTechnique() == ShadowTechnique::RasterEmbree && !renderer.embreeAvailable()) {
+        oss << " (Fallback ShadowMap)";
+    }
+
+    const string text = oss.str();
+    const int fontFace = FONT_HERSHEY_SIMPLEX;
+    const double fontScale = 0.55;
+    const int thickness = 1;
+    int baseline = 0;
+    Size textSize = getTextSize(text, fontFace, fontScale, thickness, &baseline);
+    Rect panel(8, 8, textSize.width + 16, textSize.height + 16);
+    rectangle(image, panel, Scalar(20, 20, 20), FILLED);
+    rectangle(image, panel, Scalar(210, 210, 210), 1);
+    putText(image, text, Point(panel.x + 8, panel.y + panel.height - 8), fontFace, fontScale, Scalar(240, 240, 240), thickness, LINE_AA);
 }
 }
 
@@ -235,6 +256,7 @@ int main(int argc, char** argv) {
     printShadowTechnique(myrender);
     start = std::chrono::high_resolution_clock::now();
     myrender.draw_completed(image, mymodel);
+    drawStatusOverlay(image, myrender);
     auto showStart = std::chrono::high_resolution_clock::now();
     imshow("main", image);
     auto showEnd = std::chrono::high_resolution_clock::now();
@@ -252,6 +274,7 @@ int main(int argc, char** argv) {
         auto clearEnd = std::chrono::high_resolution_clock::now();
         myrender.set_view(eye, centre, up);
         myrender.draw_completed(image, mymodel);
+        drawStatusOverlay(image, myrender);
         auto showStartLoop = std::chrono::high_resolution_clock::now();
         imshow("main", image);
         auto showEndLoop = std::chrono::high_resolution_clock::now();
@@ -274,6 +297,7 @@ int main(int argc, char** argv) {
             myrender.set_view(eye, centre, up);
             myrender.set_rotate(20.f, Vector3f(1.f, 0.f, 0.f));
             myrender.draw_completed(image, mymodel);
+            drawStatusOverlay(image, myrender);
             imshow("main", image);
             break;
         case 'w':  // 按下'+'键增加亮度
@@ -281,6 +305,7 @@ int main(int argc, char** argv) {
             myrender.set_view(eye, centre, up);
             myrender.set_rotate(-20.f, Vector3f(1.f, 0.f, 0.f));
             myrender.draw_completed(image, mymodel);
+            drawStatusOverlay(image, myrender);
             imshow("main", image);
             break;
         case 'a':  // 按下'-'键降低亮度
@@ -288,6 +313,7 @@ int main(int argc, char** argv) {
             myrender.set_view(eye, centre, up);
             myrender.set_rotate(-20.f, Vector3f(0.f, 1.f, 0.f));
             myrender.draw_completed(image, mymodel);
+            drawStatusOverlay(image, myrender);
             imshow("main", image);
             break;
         case 'd':  // 按下'-'键降低亮度
@@ -295,6 +321,7 @@ int main(int argc, char** argv) {
             myrender.set_view(eye, centre, up);
             myrender.set_rotate(20.f, Vector3f(0.f, 1.f, 0.f));
             myrender.draw_completed(image, mymodel);
+            drawStatusOverlay(image, myrender);
             imshow("main", image);
             break;
         case '1': {

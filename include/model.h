@@ -6,6 +6,8 @@
 #include<cstring>
 #include<fstream>
 #include<stdexcept>
+#include<unordered_map>
+#include<filesystem>
 #include <assimp/Importer.hpp>
 #include <assimp/scene.h>
 #include <assimp/postprocess.h>
@@ -314,8 +316,9 @@ struct vertex {
 struct texture {
 	int id;
 	string type;
-	texture() { id = -1; type = ""; }
-	texture(int id0, string type0) { id = id0; type = type0; }
+	string path;
+	texture() { id = -1; type = ""; path = ""; }
+	texture(int id0, string type0) { id = id0; type = type0; path = ""; }
 };
 
 struct MaterialPbrChannelMap {
@@ -449,6 +452,7 @@ public:
 	vector<texture> loadMaterialTextures(aiMaterial* mat, aiTextureType type, string typeName);
 	vector<Mesh> meshes;
 	vector<MyImage> images;
+	unordered_map<string, int> texture_cache;
 	string directory;
 	float maxx=-10000.f, minx = 10000.f, maxz = -10000.f, minz = 10000.f, maxy = -10000.f, miny = 10000.f;
 };

@@ -35,6 +35,14 @@ if(NOT ASSIMP_INCLUDE_DIR)
 	message(FATAL_ERROR "Complete Assimp headers were not found. Pass -DASSIMP_INCLUDE_DIR=/path/to/assimp/include or install Assimp.")
 endif()
 
+if(HAO_RENDER_ENABLE_EMBREE AND NOT EMBREE_ROOT_DIR)
+	if(EXISTS "F:/third_party/embree-4.4.1.x64.windows")
+		set(EMBREE_ROOT_DIR "F:/third_party/embree-4.4.1.x64.windows" CACHE PATH "Path to Embree root directory" FORCE)
+	elseif(EXISTS "${CMAKE_SOURCE_DIR}/third_party/embree-4.4.1.x64.windows")
+		set(EMBREE_ROOT_DIR "${CMAKE_SOURCE_DIR}/third_party/embree-4.4.1.x64.windows" CACHE PATH "Path to Embree root directory" FORCE)
+	endif()
+endif()
+
 add_executable(myrender main.cpp tgaimage.cpp Drawer.cpp shader.cpp ppp.cpp render.cpp model.cpp raytrace_backend.cpp)
 target_include_directories(myrender PRIVATE
 	${EIGEN3_INCLUDE_DIR}
