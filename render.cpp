@@ -37,6 +37,7 @@ shared_ptr<TGAImage>  readTga(const char* path) {
 int render::add_Light(const Vector4f& l) {
 	light_dir.push_back(l.normalized());
 	shadow_cache_dirty = 1;
+	ray_scene_dirty = 1;
 	if (complexshader) {
 		complexshader->addLight(*(light_dir.end() - 1));
 	}
@@ -51,6 +52,7 @@ int render::set_translation(float dx, float dy, float dz) {
 	translate;
 	model = translate *model;
 	shadow_cache_dirty = 1;
+	ray_scene_dirty = 1;
 	return 1;
 };
 int render::set_scal(float dx, float dy, float dz) {
@@ -62,6 +64,7 @@ int render::set_scal(float dx, float dy, float dz) {
 	     
 	model = scal * model;
 	shadow_cache_dirty = 1;
+	ray_scene_dirty = 1;
 	return 1;
 };
 
@@ -98,6 +101,7 @@ int render::set_rotate(float angle, const Vector3f& axis) {
 	// 4x4齐次旋转矩阵
 	model = rotate*model;
 	shadow_cache_dirty = 1;
+	ray_scene_dirty = 1;
 	return 1;
 }; 
 
@@ -218,6 +222,7 @@ int render::setSimpleShader() {
 }
 int render::setComplexShader(const Model& m ) {
 	complexshader = make_shared<ComplexShader>();
+	ray_backend = createRayTracingBackend();
 	size_t maxsize = 0;
 	int size = 0;
 	for (int i = 0; i < m.meshes.size(); i++) {
@@ -232,6 +237,8 @@ int render::setComplexShader(const Model& m ) {
 	complexshader->tangents.resize(maxsize);
 	complexshader->bitangents.resize(maxsize);
 	complexshader->view_positions.resize(maxsize);
+	complexshader->world_positions.resize(maxsize);
+	complexshader->world_normals.resize(maxsize);
 	complexshader->reciprocal_ws.resize(maxsize, 1.0f);
 	complexshader->setTexture(m.images);
 
@@ -300,7 +307,8 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 		complexshader->addLight(light_dir[i]);
 	}*/
 	auto renderStart = std::chrono::high_resolution_clock::now();
-	if (shadow_on) {
+	const bool useEmbreeShadow = shadow_on && shadow_technique == ShadowTechnique::RasterEmbree && ray_backend && ray_backend->available();
+	if (shadow_on && !useEmbreeShadow) {
 		if (!shadow_cache_valid || shadow_cache_dirty) {
 			RenderDepthBuffer shadow_map_near(shadow_near_height, shadow_near_width);
 			RenderDepthBuffer shadow_map_far(shadow_far_height, shadow_far_width);
@@ -370,8 +378,29 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	complexshader->setUniform_MIT(view);
 	complexshader->normal_strength = 0.7f;
 	complexshader->exposure = 1.0f;
+	complexshader->shadow_on = 0;
+	complexshader->ray_shadow_on = 0;
+	complexshader->ray_backend = nullptr;
+	complexshader->light_dirs_world.clear();
+	for (const auto& l : light_dir) {
+		complexshader->light_dirs_world.push_back(l.head<3>().normalized());
+	}
 	for (int i = 0; i < complexshader->light_dirs.size(); i++) {
 		complexshader->light_dirs[i]=view* light_dir[i];
+	}
+	if (useEmbreeShadow) {
+		if (!ray_scene_valid || ray_scene_dirty) {
+			ray_scene_valid = ray_backend->build(mymodel, model) ? 1 : 0;
+			ray_scene_dirty = 0;
+		}
+		if (ray_scene_valid) {
+			complexshader->shadow_on = 0;
+			complexshader->ray_shadow_on = 1;
+			complexshader->ray_backend = ray_backend.get();
+		}
+	}
+	else if (shadow_on) {
+		complexshader->shadow_on = 1;
 	}
 	Matrix4f  viewModel = view * model;
 	Matrix4f  clipMvp = projection * viewModel;

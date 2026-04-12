@@ -20,6 +20,7 @@ haorender 是一个使用 C++ 编写的 CPU 软渲染器，用来实验和学习
 - 支持 metallic、roughness、AO、emissive 的 PBR 通道映射切换
 - Phong 着色支持 sRGB/线性转换、色调映射、法线强度控制和更稳定的高光响应
 - 阴影贴图支持更高分辨率、近远级联分层和渐变 PCF 软阴影
+- 可选 `光栅化 + Embree` 阴影模式，主渲染仍然走原本光栅化，只把遮挡查询交给 Embree
 
 ## 环境要求
 
@@ -29,6 +30,7 @@ haorender 是一个使用 C++ 编写的 CPU 软渲染器，用来实验和学习
 - Assimp
 - Eigen
 - 支持 OpenMP 的编译器，推荐开启
+- Embree 4，可选，用于启用混合式光栅化 + 光追阴影路径
 
 当前 Windows 环境下项目根目录包含一个本地 `assimp-vc143-mtd.dll`。如果你的 Assimp 安装路径不同，可以修改 `CMakeLists.txt`，或者在 CMake 配置时传入正确的 Assimp 路径。
 
@@ -64,6 +66,15 @@ cmake --build build-vertex-half --config Release
 
 这个选项会把加载后的 position、normal、tangent、bitangent、UV 存成 `Eigen::half`，然后在 CPU MVP 和着色路径里转回 `float` 使用。在普通 CPU 上它主要降低顶点内存带宽，不保证矩阵乘法一定更快，除非硬件和编译器能高效执行半精度运算。
 
+如果想启用可选的 Embree 后端，可以这样构建：
+
+```powershell
+cmake -S . -B build-embree -DHAO_RENDER_ENABLE_EMBREE=ON -DEMBREE_INCLUDE_DIR="path\to\embree\include" -DEMBREE_LIBRARY="path\to\embree4.lib"
+cmake --build build-embree --config Release
+```
+
+如果没有找到 Embree，项目也仍然可以正常构建，并自动继续使用原来的 shadow map 路径。
+
 ## 运行
 
 进入构建输出目录后运行：
@@ -92,6 +103,8 @@ cmake --build build-vertex-half --config Release
 - `r`：重置相机
 - `w`、`a`、`s`、`d`：快速旋转模型
 - `1`、`2`、`3`：切换 PBR 通道映射预设
+- `4`：切换到原本的 shadow map 阴影路径
+- `5`：在 Embree 可用时切换到 `光栅化 + Embree` 阴影模式
 - `Esc`：退出
 
 ## 当前说明

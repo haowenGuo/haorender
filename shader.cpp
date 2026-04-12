@@ -1,5 +1,6 @@
 
 #include"shader.h"
+#include "raytrace_backend.h"
 #include <drawer.h>
 #include <algorithm>
 #include <cmath>
@@ -147,6 +148,8 @@ ComplexShader::RasterVertex interpolateVertex(const ComplexShader::RasterVertex&
 	result.tangent = a.tangent + t * (b.tangent - a.tangent);
 	result.bitangent = a.bitangent + t * (b.bitangent - a.bitangent);
 	result.view_position = a.view_position + t * (b.view_position - a.view_position);
+	result.world_position = a.world_position + t * (b.world_position - a.world_position);
+	result.world_normal = a.world_normal + t * (b.world_normal - a.world_normal);
 	return result;
 }
 
@@ -332,6 +335,7 @@ void ComplexShader::setTexture(const vector<MyImage>& textures0) { textures = te
 
 void ComplexShader::setUniform_M(const Matrix4f& m) {
 	uniform_M = m;
+	uniform_M_worldIT = uniform_M.inverse().transpose();
 };
 void ComplexShader::setUniform_MIT(const Matrix4f& m) { uniform_MIT = (uniform_V * uniform_M).inverse().transpose(); }
 void ComplexShader::setUniform_V(const Matrix4f& m) { uniform_V = m; }
@@ -360,6 +364,8 @@ int ComplexShader::drawTriagle_completed(Mat& im, RenderDepthBuffer& zbuff, int 
 		inputTriangle[i].tangent = tangents.empty() ? Vector4f::Zero() : tangents[index];
 		inputTriangle[i].bitangent = bitangents.empty() ? Vector4f::Zero() : bitangents[index];
 		inputTriangle[i].view_position = view_positions.empty() ? Vector3f::Zero() : view_positions[index];
+		inputTriangle[i].world_position = world_positions.empty() ? Vector3f::Zero() : world_positions[index];
+		inputTriangle[i].world_normal = world_normals.empty() ? Vector4f::Zero() : world_normals[index];
 		inputTriangle[i].reciprocal_w = reciprocal_ws[index];
 	}
 
@@ -451,6 +457,8 @@ int ComplexShader::buildClippedTriangles(const int indexs[3], int width, int hei
 		inputTriangle[i].tangent = tangents.empty() ? Vector4f::Zero() : tangents[index];
 		inputTriangle[i].bitangent = bitangents.empty() ? Vector4f::Zero() : bitangents[index];
 		inputTriangle[i].view_position = view_positions.empty() ? Vector3f::Zero() : view_positions[index];
+		inputTriangle[i].world_position = world_positions.empty() ? Vector3f::Zero() : world_positions[index];
+		inputTriangle[i].world_normal = world_normals.empty() ? Vector4f::Zero() : world_normals[index];
 		inputTriangle[i].reciprocal_w = reciprocal_ws[index];
 	}
 
@@ -489,6 +497,8 @@ int ComplexShader::vertexShader2(const Vector4f& position0, const Vector2f& uv0,
 	positions[t].noalias() = screen_mvp * position0;
 	Vector4f viewPos = view_model * position0;
 	view_positions[t] = viewPos.head<3>();
+	Vector4f worldPos = uniform_M * position0;
+	world_positions[t] = worldPos.head<3>();
 	
 	if (shadow_on)
 	{
@@ -519,8 +529,13 @@ int ComplexShader::vertexShader2(const Vector4f& position0, const Vector2f& uv0,
 	uvs[t] = uv0;
 	normals[t] = uniform_MIT * n0;
 	normals[t][3] = 0.f ;
+	world_normals[t] = uniform_M_worldIT * n0;
+	world_normals[t][3] = 0.f;
 	if (normals[t].head<3>().squaredNorm() > 1e-8f) {
 		normals[t].normalize();
+	}
+	if (world_normals[t].head<3>().squaredNorm() > 1e-8f) {
+		world_normals[t].normalize();
 	}
 	tangents[t] = uniform_MIT * t0;
 	bitangents[t] = uniform_MIT * b0;
@@ -701,7 +716,21 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 	}
 
 	float shadowVisibility = 1.0f;
-	if (shadow_on == 1) {
+	if (ray_shadow_on == 1 && ray_backend != nullptr && !light_dirs_world.empty()) {
+		Vector3f worldPos = x * triangle[0].world_position + y * triangle[1].world_position + z * triangle[2].world_position;
+		Vector3f worldNormal = (x * triangle[0].world_normal + y * triangle[1].world_normal + z * triangle[2].world_normal).head<3>();
+		if (worldNormal.squaredNorm() > 1e-8f) {
+			worldNormal.normalize();
+		}
+		Vector3f rayDir = -light_dirs_world[0];
+		if (rayDir.squaredNorm() > 1e-8f) {
+			rayDir.normalize();
+			float bias = 0.0025f;
+			Vector3f rayOrigin = worldPos + worldNormal * bias;
+			shadowVisibility = ray_backend->occludedDirectional(rayOrigin, rayDir, 0.001f, 1.0e6f) ? 0.0f : 1.0f;
+		}
+	}
+	else if (shadow_on == 1) {
 		float nDotL = light_dirs.empty() ? 1.0f : std::abs(n0.dot(light_dirs[0]));
 		float bias = std::max(0.006f * (1.0f - nDotL), 0.0025f);
 		float normalOffset = 0.0006f * (1.0f - nDotL);

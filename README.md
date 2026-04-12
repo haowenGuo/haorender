@@ -20,6 +20,7 @@ This repository is a learning-oriented renderer rather than a production engine.
 - Configurable PBR channel mapping for metallic, roughness, AO, and emissive channels
 - Phong shading with sRGB/linear conversion, tone mapping, normal strength control, and adjusted specular response
 - Shadow mapping with higher-resolution maps, cascaded near/far shadow layers, and gradient PCF softening
+- Optional `Raster + Embree` shadow mode, keeping rasterization as the primary renderer while using Embree for CPU ray-occlusion queries
 
 ## Requirements
 
@@ -29,6 +30,7 @@ This repository is a learning-oriented renderer rather than a production engine.
 - Assimp
 - Eigen
 - OpenMP-capable compiler, optional but recommended
+- Embree 4, optional when you want the hybrid raster + ray-traced shadow path
 
 The project currently uses a local `assimp-vc143-mtd.dll` on Windows. If your Assimp installation differs, update `CMakeLists.txt` or pass the correct Assimp CMake/include path during configuration.
 
@@ -64,6 +66,15 @@ cmake --build build-vertex-half --config Release
 
 This stores loaded mesh position, normal, tangent, bitangent, and UV data in `Eigen::half`, then converts them back to `float` for the CPU MVP and shading path. On CPUs this mainly reduces vertex memory bandwidth; it does not guarantee faster matrix multiplication unless the hardware/compiler can execute half arithmetic efficiently.
 
+To enable the optional Embree backend:
+
+```powershell
+cmake -S . -B build-embree -DHAO_RENDER_ENABLE_EMBREE=ON -DEMBREE_INCLUDE_DIR="path\to\embree\include" -DEMBREE_LIBRARY="path\to\embree4.lib"
+cmake --build build-embree --config Release
+```
+
+If Embree is not found, the project still builds and keeps using the original shadow-map path.
+
 ## Run
 
 From the build output directory:
@@ -92,6 +103,8 @@ The default model path in `main.cpp` is:
 - `r`: reset camera
 - `w`, `a`, `s`, `d`: rotate the model for quick inspection
 - `1`, `2`, `3`: switch PBR channel mapping presets
+- `4`: use the original shadow-map path
+- `5`: use `Raster + Embree` shadow mode when Embree is available
 - `Esc`: exit
 
 ## Current Notes

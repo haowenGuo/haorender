@@ -5,8 +5,10 @@
 #include<cmath>
 #include <Eigen/Dense>
 #include <array>
+#include <memory>
 using namespace cv;
 using namespace Eigen;
+class RayTracingBackend;
 class Shader {
 public:
 	virtual ~Shader() = 0;
@@ -53,6 +55,8 @@ public:
 		Vector4f tangent = Vector4f::Zero();
 		Vector4f bitangent = Vector4f::Zero();
 		Vector3f view_position = Vector3f::Zero();
+		Vector3f world_position = Vector3f::Zero();
+		Vector4f world_normal = Vector4f::Zero();
 		float reciprocal_w = 1.0f;
 	};
 	struct TileBounds {
@@ -76,6 +80,8 @@ public:
 	vector<Vector4f> tangents;
 	vector<Vector4f> bitangents;
 	vector<Vector3f> view_positions;
+	vector<Vector3f> world_positions;
+	vector<Vector4f> world_normals;
 	vector<float> reciprocal_ws;
 	MaterialPbrChannelMap pbr_channel_map;
 	//vector<Vector4f> positions;
@@ -99,11 +105,15 @@ public:
 	RenderDepthBuffer shadowmap_near;
 	RenderDepthBuffer shadowmap_far;
 	int shadow_on = 0;
+	int ray_shadow_on = 0;
 	int shadow_cascade_on = 0;
 	float cascade_split = 2.5f;
 	float cascade_blend = 0.5f;
 	float normal_strength = 1.0f;
 	float exposure = 1.0f;
+	vector<Vector3f> light_dirs_world;
+	const RayTracingBackend* ray_backend = nullptr;
+	Matrix4f uniform_M_worldIT = Matrix4f::Identity();
 	Vector2f uv[3];
 	Vector4f n[3];
 	Vector4f position[3];

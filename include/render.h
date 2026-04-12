@@ -5,12 +5,17 @@
 #include"model.h"
 #include"drawer.h"
 #include"shader.h"
+#include"raytrace_backend.h"
 #include<memory>
 #include <Eigen/Dense>
 using namespace cv;
 using namespace std;
 using namespace Eigen;
 shared_ptr<TGAImage> readTga(const char* path);
+enum class ShadowTechnique {
+	ShadowMap = 0,
+	RasterEmbree = 1
+};
 class render {
 public:
 	struct FrameProfile {
@@ -91,6 +96,12 @@ public:
 	int openShadow() { shadow_on = 1; if (complexshader) complexshader->shadow_on = 1; return 1; };
 	int setSimpleShader();
 	int setComplexShader(const Model& m);
+	void setShadowTechnique(ShadowTechnique mode) { shadow_technique = mode; }
+	ShadowTechnique getShadowTechnique() const { return shadow_technique; }
+	bool embreeAvailable() const { return ray_backend && ray_backend->available(); }
+	const char* shadowTechniqueName() const {
+		return shadow_technique == ShadowTechnique::RasterEmbree ? "Raster+Embree" : "ShadowMap";
+	}
 	const FrameProfile& getLastProfile() const { return last_profile; }
 	int height;
 	int weight;
@@ -117,6 +128,10 @@ public:
 	shared_ptr<TGAImage> spectexture ;
 	FrameProfile last_profile;
 	vector<vector<int>> tile_bins_cache;
+	ShadowTechnique shadow_technique = ShadowTechnique::ShadowMap;
+	std::shared_ptr<RayTracingBackend> ray_backend;
+	int ray_scene_valid = 0;
+	int ray_scene_dirty = 1;
 	RenderDepthBuffer cached_shadow_map_near;
 	RenderDepthBuffer cached_shadow_map_far;
 	Matrix4f cached_lv_near = Matrix4f::Identity();

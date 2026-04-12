@@ -7,9 +7,12 @@ find_package(OpenCV REQUIRED)
 find_package(OpenMP)
 find_package(assimp CONFIG QUIET)
 find_path(EIGEN3_INCLUDE_DIR NAMES Eigen/Core)
+find_package(embree 4 QUIET)
 set(ASSIMP_INCLUDE_DIR "" CACHE PATH "Path to a complete Assimp include directory")
+set(EMBREE_INCLUDE_DIR "" CACHE PATH "Path to Embree include directory")
 option(HAO_RENDER_DEPTH_HALF "Use Eigen::half for z-buffer and shadow depth buffers" OFF)
 option(HAO_RENDER_VERTEX_HALF "Store loaded mesh vertex attributes as Eigen::half" OFF)
+option(HAO_RENDER_ENABLE_EMBREE "Enable Embree-backed ray tracing features when Embree is available" ON)
 
 if(NOT (ASSIMP_INCLUDE_DIR
 	AND EXISTS "${ASSIMP_INCLUDE_DIR}/assimp/config.h"
@@ -31,7 +34,7 @@ if(NOT ASSIMP_INCLUDE_DIR)
 	message(FATAL_ERROR "Complete Assimp headers were not found. Pass -DASSIMP_INCLUDE_DIR=/path/to/assimp/include or install Assimp.")
 endif()
 
-add_executable(myrender main.cpp tgaimage.cpp Drawer.cpp shader.cpp ppp.cpp render.cpp model.cpp)
+add_executable(myrender main.cpp tgaimage.cpp Drawer.cpp shader.cpp ppp.cpp render.cpp model.cpp raytrace_backend.cpp)
 target_include_directories(myrender PRIVATE
 	${EIGEN3_INCLUDE_DIR}
 	${ASSIMP_INCLUDE_DIR}
@@ -59,6 +62,24 @@ endif()
 
 if(HAO_RENDER_VERTEX_HALF)
 	target_compile_definitions(myrender PRIVATE HAO_RENDER_VERTEX_HALF)
+endif()
+
+if(HAO_RENDER_ENABLE_EMBREE)
+	if(TARGET embree)
+		target_link_libraries(myrender PRIVATE embree)
+		target_compile_definitions(myrender PRIVATE HAO_RENDER_EMBREE)
+	elseif(TARGET embree4)
+		target_link_libraries(myrender PRIVATE embree4)
+		target_compile_definitions(myrender PRIVATE HAO_RENDER_EMBREE)
+	else()
+		find_path(EMBREE_INCLUDE_DIR NAMES embree4/rtcore.h embree3/rtcore.h)
+		find_library(EMBREE_LIBRARY NAMES embree4 embree3 embree)
+		if(EMBREE_INCLUDE_DIR AND EMBREE_LIBRARY)
+			target_include_directories(myrender PRIVATE ${EMBREE_INCLUDE_DIR})
+			target_link_libraries(myrender PRIVATE ${EMBREE_LIBRARY})
+			target_compile_definitions(myrender PRIVATE HAO_RENDER_EMBREE)
+		endif()
+	endif()
 endif()
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/assimp-vc143-mtd.dll")

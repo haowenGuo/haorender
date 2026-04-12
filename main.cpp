@@ -79,6 +79,15 @@ void applyPbrChannelMap(Model& model, const MaterialPbrChannelMap& map) {
         << " emissive=" << map.emissive_channel << endl;
 }
 
+void printShadowTechnique(const render& renderer) {
+    cout << "[Shadow] mode=" << renderer.shadowTechniqueName()
+        << " embreeAvailable=" << (renderer.embreeAvailable() ? 1 : 0);
+    if (renderer.getShadowTechnique() == ShadowTechnique::RasterEmbree && !renderer.embreeAvailable()) {
+        cout << " fallback=ShadowMap";
+    }
+    cout << endl;
+}
+
 void printFrameProfile(const render::FrameProfile& profile) {
     cout << "[Profiler] clear=" << profile.clear_ms
         << " ms, shadow near=" << profile.shadow_near_ms
@@ -198,6 +207,7 @@ int main(int argc, char** argv) {
     myrender.set_viewport(0.0f, 0.0f, static_cast<float>(weight), static_cast<float>(height));
 
     myrender.openShadow();
+    printShadowTechnique(myrender);
     start = std::chrono::high_resolution_clock::now();
     myrender.draw_completed(image, mymodel);
     auto showStart = std::chrono::high_resolution_clock::now();
@@ -287,6 +297,16 @@ int main(int argc, char** argv) {
             map.ao_channel = 0;
             map.emissive_channel = 0;
             applyPbrChannelMap(mymodel, map);
+            break;
+        }
+        case '4': {
+            myrender.setShadowTechnique(ShadowTechnique::ShadowMap);
+            printShadowTechnique(myrender);
+            break;
+        }
+        case '5': {
+            myrender.setShadowTechnique(ShadowTechnique::RasterEmbree);
+            printShadowTechnique(myrender);
             break;
         }
         case -1:  // 没有按键被按下
