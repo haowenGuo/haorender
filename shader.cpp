@@ -4,6 +4,7 @@
 #include <drawer.h>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 Shader::~Shader() {};
 
 namespace {
@@ -78,6 +79,129 @@ Vector3f tonemapReinhard(const Vector3f& c) {
 	out[1] = c[1] / (1.0f + c[1]);
 	out[2] = c[2] / (1.0f + c[2]);
 	return out;
+}
+
+Vector3f colorToRgb01(const MyColor& c) {
+	if (c.channels >= 3) {
+		return Vector3f(
+			static_cast<float>(c.r) / 255.0f,
+			static_cast<float>(c.g) / 255.0f,
+			static_cast<float>(c.b) / 255.0f);
+	}
+	float value = channelValue01(c, 0);
+	return Vector3f(value, value, value);
+}
+
+Vector3f sampleTextureLinearRgb(const MyImage& image, float u, float v) {
+	if (!image.data || image.width <= 0 || image.height <= 0) {
+		return Vector3f::Zero();
+	}
+	float fx = wrap01(u) * static_cast<float>(std::max(image.width - 1, 1));
+	float fy = wrap01(v) * static_cast<float>(std::max(image.height - 1, 1));
+	int x0 = std::clamp(static_cast<int>(std::floor(fx)), 0, image.width - 1);
+	int y0 = std::clamp(static_cast<int>(std::floor(fy)), 0, image.height - 1);
+	int x1 = std::min(x0 + 1, image.width - 1);
+	int y1 = std::min(y0 + 1, image.height - 1);
+	float tx = fx - static_cast<float>(x0);
+	float ty = fy - static_cast<float>(y0);
+	Vector3f c00 = colorToRgb01(image.get(x0, y0));
+	Vector3f c10 = colorToRgb01(image.get(x1, y0));
+	Vector3f c01 = colorToRgb01(image.get(x0, y1));
+	Vector3f c11 = colorToRgb01(image.get(x1, y1));
+	Vector3f c0 = c00 * (1.0f - tx) + c10 * tx;
+	Vector3f c1 = c01 * (1.0f - tx) + c11 * tx;
+	return c0 * (1.0f - ty) + c1 * ty;
+}
+
+Vector2f directionToLatLong(const Vector3f& dir) {
+	Vector3f d = dir;
+	if (d.squaredNorm() <= 1e-8f) {
+		d = Vector3f(0.0f, 1.0f, 0.0f);
+	}
+	else {
+		d.normalize();
+	}
+	float u = std::atan2(d[2], d[0]) / (2.0f * static_cast<float>(MY_PI)) + 0.5f;
+	float v = std::acos(std::clamp(d[1], -1.0f, 1.0f)) / static_cast<float>(MY_PI);
+	return Vector2f(wrap01(u), std::clamp(v, 0.0f, 1.0f));
+}
+
+Vector3f sampleEnvironmentLatLong(const vector<MyImage>& mips, const Vector3f& dir, float roughness) {
+	if (mips.empty()) {
+		return Vector3f::Zero();
+	}
+	float mipLevel = roughness * static_cast<float>(std::max(static_cast<int>(mips.size()) - 1, 0));
+	int mip0 = std::clamp(static_cast<int>(std::floor(mipLevel)), 0, static_cast<int>(mips.size()) - 1);
+	int mip1 = std::clamp(mip0 + 1, 0, static_cast<int>(mips.size()) - 1);
+	float t = mipLevel - static_cast<float>(mip0);
+	Vector2f uv = directionToLatLong(dir);
+	Vector3f c0 = sampleTextureLinearRgb(mips[mip0], uv[0], uv[1]);
+	Vector3f c1 = sampleTextureLinearRgb(mips[mip1], uv[0], uv[1]);
+	return srgbToLinear(c0 * (1.0f - t) + c1 * t);
+}
+
+Vector3f sampleSkyIrradiance(const Vector3f& dir) {
+	float t = std::clamp(dir[1] * 0.5f + 0.5f, 0.0f, 1.0f);
+	Vector3f horizon(0.45f, 0.48f, 0.52f);
+	Vector3f zenith(0.62f, 0.72f, 0.92f);
+	Vector3f ground(0.10f, 0.10f, 0.11f);
+	if (dir[1] >= 0.0f) {
+		return srgbToLinear(horizon * (1.0f - t) + zenith * t);
+	}
+	float down = std::clamp(-dir[1], 0.0f, 1.0f);
+	return srgbToLinear(horizon * (1.0f - down) + ground * down);
+}
+
+float radicalInverseVdC(unsigned int bits) {
+	bits = (bits << 16u) | (bits >> 16u);
+	bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+	bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+	bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+	bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+	return static_cast<float>(bits) * 2.3283064365386963e-10f;
+}
+
+Vector2f hammersley(unsigned int i, unsigned int n) {
+	return Vector2f(static_cast<float>(i) / static_cast<float>(n), radicalInverseVdC(i));
+}
+
+Vector3f importanceSampleGGX(const Vector2f& xi, const Vector3f& n, float roughness) {
+	float a = roughness * roughness;
+	float phi = 2.0f * static_cast<float>(MY_PI) * xi[0];
+	float cosTheta = std::sqrt((1.0f - xi[1]) / std::max(1.0f + (a * a - 1.0f) * xi[1], 1e-6f));
+	float sinTheta = std::sqrt(std::max(1.0f - cosTheta * cosTheta, 0.0f));
+	Vector3f h(std::cos(phi) * sinTheta, std::sin(phi) * sinTheta, cosTheta);
+	Vector3f up = std::abs(n[2]) < 0.999f ? Vector3f(0.0f, 0.0f, 1.0f) : Vector3f(1.0f, 0.0f, 0.0f);
+	Vector3f tangent = up.cross(n).normalized();
+	Vector3f bitangent = n.cross(tangent);
+	Vector3f sampleVec = tangent * h[0] + bitangent * h[1] + n * h[2];
+	return sampleVec.normalized();
+}
+
+Vector2f integrateBrdfSample(float ndotv, float roughness) {
+	Vector3f v(std::sqrt(std::max(1.0f - ndotv * ndotv, 0.0f)), 0.0f, ndotv);
+	Vector3f n(0.0f, 0.0f, 1.0f);
+	float a = 0.0f;
+	float b = 0.0f;
+	const unsigned int sampleCount = 64u;
+	for (unsigned int i = 0; i < sampleCount; ++i) {
+		Vector2f xi = hammersley(i, sampleCount);
+		Vector3f h = importanceSampleGGX(xi, n, std::max(roughness, 0.04f));
+		Vector3f l = (2.0f * v.dot(h) * h - v).normalized();
+		float ndotl = std::max(l[2], 0.0f);
+		float ndoth = std::max(h[2], 0.0f);
+		float vdoth = std::max(v.dot(h), 0.0f);
+		if (ndotl > 1e-5f) {
+			float k = std::pow(roughness + 1.0f, 2.0f) / 8.0f;
+			float gv = ndotv / std::max(ndotv * (1.0f - k) + k, 1e-6f);
+			float gl = ndotl / std::max(ndotl * (1.0f - k) + k, 1e-6f);
+			float gVis = (gv * gl * vdoth) / std::max(ndoth * ndotv, 1e-6f);
+			float fc = std::pow(1.0f - vdoth, 5.0f);
+			a += (1.0f - fc) * gVis;
+			b += fc * gVis;
+		}
+	}
+	return Vector2f(a, b) / static_cast<float>(sampleCount);
 }
 
 Vector3f perspectiveCorrectWeights(const vector<float>& reciprocalWs, const int indexs[3], float alpha, float beta, float gamma) {
@@ -332,6 +456,63 @@ void ComplexShader::setUV0(const Vector2f& uv0, int index) { uv[index]=uv0; }
 void ComplexShader::setN(const Vector4f& n0, int index) { n[index] = n0; }
 void ComplexShader::setP(const Vector4f& p0, int index) { position[index] = p0; }
 void ComplexShader::setTexture(const vector<MyImage>& textures0) { textures = textures0; }
+void ComplexShader::setEnvironmentMap(const MyImage& image) {
+	environment_mips.clear();
+	if (!image.data || image.width <= 0 || image.height <= 0) {
+		ibl_on = 0;
+		buildBrdfLut();
+		return;
+	}
+	environment_mips.push_back(image);
+	MyImage current = image;
+	while (current.width > 1 || current.height > 1) {
+		int nextWidth = std::max(1, current.width / 2);
+		int nextHeight = std::max(1, current.height / 2);
+		std::vector<unsigned char> nextData(nextWidth * nextHeight * current.channels, 0);
+		MyImage next(nextData.data(), nextWidth, nextHeight, current.channels);
+		for (int y = 0; y < nextHeight; ++y) {
+			for (int x = 0; x < nextWidth; ++x) {
+				for (int c = 0; c < current.channels; ++c) {
+					int x0 = std::min(x * 2, current.width - 1);
+					int y0 = std::min(y * 2, current.height - 1);
+					int x1 = std::min(x0 + 1, current.width - 1);
+					int y1 = std::min(y0 + 1, current.height - 1);
+					int idx00 = (x0 + y0 * current.width) * current.channels + c;
+					int idx10 = (x1 + y0 * current.width) * current.channels + c;
+					int idx01 = (x0 + y1 * current.width) * current.channels + c;
+					int idx11 = (x1 + y1 * current.width) * current.channels + c;
+					int avg = (static_cast<int>(current.data[idx00]) + static_cast<int>(current.data[idx10]) +
+						static_cast<int>(current.data[idx01]) + static_cast<int>(current.data[idx11])) / 4;
+					next.data[(x + y * nextWidth) * current.channels + c] = static_cast<unsigned char>(avg);
+				}
+			}
+		}
+		environment_mips.push_back(next);
+		current = next;
+	}
+	ibl_on = 1;
+	buildBrdfLut();
+	std::cout << "[IBL] environment mip levels=" << environment_mips.size()
+		<< " brdfLut=" << brdf_lut_size << "x" << brdf_lut_size << std::endl;
+}
+
+void ComplexShader::clearEnvironmentMap() {
+	environment_mips.clear();
+	ibl_on = 0;
+	buildBrdfLut();
+}
+
+void ComplexShader::buildBrdfLut(int size) {
+	brdf_lut_size = std::max(size, 16);
+	brdf_lut.assign(brdf_lut_size * brdf_lut_size, Vector2f::Zero());
+	for (int y = 0; y < brdf_lut_size; ++y) {
+		float roughness = (static_cast<float>(y) + 0.5f) / static_cast<float>(brdf_lut_size);
+		for (int x = 0; x < brdf_lut_size; ++x) {
+			float ndotv = (static_cast<float>(x) + 0.5f) / static_cast<float>(brdf_lut_size);
+			brdf_lut[y * brdf_lut_size + x] = integrateBrdfSample(std::clamp(ndotv, 0.0f, 1.0f), std::clamp(roughness, 0.04f, 1.0f));
+		}
+	}
+}
 
 void ComplexShader::setUniform_M(const Matrix4f& m) {
 	uniform_M = m;
@@ -893,6 +1074,14 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 		auto fresnelSchlick = [](float cosTheta, const Vector3f& F0) {
 			return F0 + (Vector3f::Ones() - F0) * std::pow(1.0f - cosTheta, 5.0f);
 		};
+		auto fresnelSchlickRoughness = [](float cosTheta, const Vector3f& F0, float roughnessValue) {
+			Vector3f oneMinusRoughness = Vector3f::Ones() * (1.0f - roughnessValue);
+			Vector3f maxValue(
+				std::max(oneMinusRoughness[0], F0[0]),
+				std::max(oneMinusRoughness[1], F0[1]),
+				std::max(oneMinusRoughness[2], F0[2]));
+			return F0 + (maxValue - F0) * std::pow(1.0f - cosTheta, 5.0f);
+		};
 		auto distributionGGX = [](const Vector3f& N, const Vector3f& H, float rough) {
 			float a = rough * rough;
 			float a2 = a * a;
@@ -944,14 +1133,40 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 			Vector3f kD = Vector3f::Ones() - kS;
 			kD *= (1.0f - metallic);
 
-			Vector3f radiance(1.0f, 1.0f, 1.0f);
+			Vector3f radiance = (i < static_cast<int>(light_colors.size())) ? light_colors[i] : Vector3f::Ones();
 			float shadowFactor = 0.35f + 0.65f * shadowVisibility;
 			Vector3f brdf = kD.cwiseProduct(albedo) / 3.1415926f + specular;
 			Lo += brdf.cwiseProduct(radiance) * (NdotL * shadowFactor);
 		}
 
-		Vector3f ambientColor = Vector3f(0.03f, 0.03f, 0.03f).cwiseProduct(albedo) * ao;
-		Vector3f colorLinear = (ambientColor + Lo + emissive) * exposure;
+		float NdotV = std::max(N.dot(V), 0.0f);
+		Vector3f F = fresnelSchlickRoughness(NdotV, F0, roughness);
+		Vector3f kS = F;
+		Vector3f kD = (Vector3f::Ones() - kS) * (1.0f - metallic);
+		Vector3f diffuseIbl = Vector3f::Zero();
+		Vector3f specularIbl = Vector3f::Zero();
+		Vector3f R = (2.0f * N.dot(V) * N - V).normalized();
+		if (ibl_on && !environment_mips.empty()) {
+			Vector3f irradiance = sampleEnvironmentLatLong(environment_mips, N, 1.0f);
+			diffuseIbl = irradiance.cwiseProduct(albedo).cwiseProduct(kD) * ibl_diffuse_strength;
+			if (!brdf_lut.empty() && brdf_lut_size > 0) {
+				float lutX = std::clamp(NdotV, 0.0f, 1.0f);
+				float lutY = std::clamp(roughness, 0.0f, 1.0f);
+				int ix = std::clamp(static_cast<int>(lutX * static_cast<float>(brdf_lut_size - 1)), 0, brdf_lut_size - 1);
+				int iy = std::clamp(static_cast<int>(lutY * static_cast<float>(brdf_lut_size - 1)), 0, brdf_lut_size - 1);
+				Vector2f envBrdf = brdf_lut[iy * brdf_lut_size + ix];
+				Vector3f prefiltered = sampleEnvironmentLatLong(environment_mips, R, roughness);
+				Vector3f specTerm = F * envBrdf[0] + Vector3f::Ones() * envBrdf[1];
+				specularIbl = prefiltered.cwiseProduct(specTerm) * ibl_specular_strength;
+			}
+		}
+		else {
+			Vector3f sky = sampleSkyIrradiance(N);
+			diffuseIbl = sky.cwiseProduct(albedo).cwiseProduct(kD) * sky_light_strength;
+			specularIbl = sampleSkyIrradiance(R).cwiseProduct(F) * (sky_light_strength * 0.35f);
+		}
+
+		Vector3f colorLinear = (diffuseIbl * ao + specularIbl * ao + Lo + emissive) * exposure;
 		Vector3f colorMapped = tonemapReinhard(colorLinear);
 		Vector3f colorSRGB = linearToSrgb(colorMapped);
 		color = Vec3b(
@@ -991,8 +1206,11 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 			H.normalize();
 		}
 		float specTerm = std::pow(std::max(N.dot(H), 0.0f), shininess);
-		intense_diff += NdotL;
-		intense_spec += specTerm;
+		float lightEnergy = (i < static_cast<int>(light_colors.size()))
+			? (light_colors[i][0] + light_colors[i][1] + light_colors[i][2]) / 3.0f
+			: 1.0f;
+		intense_diff += NdotL * lightEnergy;
+		intense_spec += specTerm * lightEnergy;
 	}
 
 	float shadowDiffuse = 0.25f + 0.75f * shadowVisibility;
@@ -1000,7 +1218,9 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 
 	Vector3f diffuse = albedo * intense_diff * shadowDiffuse;
 	Vector3f specular = Vector3f::Ones() * (specStrength * intense_spec * shadowSpec);
-	Vector3f ambientColor = albedo * 0.08f;
+	Vector3f ambientColor = ibl_on && !environment_mips.empty()
+		? sampleEnvironmentLatLong(environment_mips, N, 1.0f).cwiseProduct(albedo) * 0.12f
+		: sampleSkyIrradiance(N).cwiseProduct(albedo) * 0.12f;
 	Vector3f colorLinear = (ambientColor + diffuse + specular) * exposure;
 	Vector3f colorMapped = tonemapReinhard(colorLinear);
 	Vector3f colorSrgb = linearToSrgb(colorMapped);

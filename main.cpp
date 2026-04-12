@@ -13,6 +13,7 @@
 #include <chrono>
 #include <string>
 #include <sstream>
+#include <filesystem>
 #include <xmmintrin.h>
 #include <pmmintrin.h>
 
@@ -131,6 +132,26 @@ void drawStatusOverlay(Mat& image, const render& renderer) {
     rectangle(image, panel, Scalar(210, 210, 210), 1);
     putText(image, text, Point(panel.x + 8, panel.y + panel.height - 8), fontFace, fontScale, Scalar(240, 240, 240), thickness, LINE_AA);
 }
+
+string findDefaultEnvironmentMap() {
+    const vector<string> candidates = {
+        "../../Resources/IBL/studio_small_08_1k.hdr",
+        "../../Resources/IBL/blouberg_sunrise_2_1k.hdr",
+        "../../Resources/IBL/royal_esplanade_1k.jpg",
+        "../Resources/IBL/studio_small_08_1k.hdr",
+        "Resources/IBL/studio_small_08_1k.hdr",
+        "../Resources/IBL/blouberg_sunrise_2_1k.hdr",
+        "Resources/IBL/blouberg_sunrise_2_1k.hdr",
+        "../Resources/IBL/royal_esplanade_1k.jpg",
+        "Resources/IBL/royal_esplanade_1k.jpg"
+    };
+    for (const auto& path : candidates) {
+        if (std::filesystem::exists(path) && std::filesystem::file_size(path) > 1024) {
+            return path;
+        }
+    }
+    return "";
+}
 }
 
 static void mouseCallback(int event, int x, int y, int flags, void* userdata) {
@@ -245,8 +266,16 @@ int main(int argc, char** argv) {
     myrender.set_translation(-modelCenter[0], -modelCenter[1], -modelCenter[2]);
     myrender.set_scal(2.f/ max_size, 2.f / max_size, 2.f / max_size);
     myrender.set_rotate(0.f, Vector3f(1.f, 0.f, 0.f));
-    //myrender.set_translation(0, 0.f, -1.0f);
-    myrender.add_Light(Vector4f(-1.0f, -1.0f, -1.0f, 0.f));
+    myrender.add_Light(Vector4f(-1.0f, -1.0f, -1.0f, 0.f), Vector3f(2.6f, 2.4f, 2.2f));
+    myrender.add_Light(Vector4f(0.8f, -0.35f, -0.2f, 0.f), Vector3f(0.45f, 0.50f, 0.65f));
+    myrender.add_Light(Vector4f(-0.2f, -0.5f, 0.9f, 0.f), Vector3f(0.25f, 0.22f, 0.20f));
+    string envPath = findDefaultEnvironmentMap();
+    if (!envPath.empty()) {
+        myrender.setEnvironmentMap(envPath.c_str());
+    }
+    else {
+        cout << "[IBL] 未找到默认环境贴图，将使用天空光 fallback" << endl;
+    }
     resetCamera(Vector3f::Zero(), 3.0f);
     myrender.set_view(eye, centre, up);
     myrender.set_viewport(0.0f, 0.0f, static_cast<float>(weight), static_cast<float>(height));

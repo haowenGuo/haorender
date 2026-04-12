@@ -86,6 +86,7 @@ public:
 	MaterialPbrChannelMap pbr_channel_map;
 	//vector<Vector4f> positions;
 	vector<Vector4f> light_dirs;
+	vector<Vector3f> light_colors;
 	vector<Vector4f> point_light;
 	Matrix4f uniform_M = Matrix4f::Identity();
 	Matrix4f uniform_MIT = Matrix4f::Identity();
@@ -112,6 +113,13 @@ public:
 	float normal_strength = 1.0f;
 	float exposure = 1.0f;
 	vector<Vector3f> light_dirs_world;
+	vector<MyImage> environment_mips;
+	vector<Vector2f> brdf_lut;
+	int brdf_lut_size = 0;
+	int ibl_on = 0;
+	float ibl_diffuse_strength = 0.55f;
+	float ibl_specular_strength = 0.8f;
+	float sky_light_strength = 0.2f;
 	const RayTracingBackend* ray_backend = nullptr;
 	Matrix4f uniform_M_worldIT = Matrix4f::Identity();
 	Vector2f uv[3];
@@ -129,6 +137,9 @@ public:
 	void setNormal(vector<Vector4f>& normal0);
 	//void setPointions(vector<Vec4f>& position0);
 	void setTexture(const vector<MyImage>& textures0);
+	void setEnvironmentMap(const MyImage& image);
+	void clearEnvironmentMap();
+	void buildBrdfLut(int size = 128);
 
 	Vector4f vertexShader(const vertex& vertexs, const Matrix4f& mvp);
 	int drawTriagle_completed(Mat& im, RenderDepthBuffer& zbuff, int difftexture, int nmtexture, int spectexture, int baseColorTex, int metallicTex, int roughnessTex, int metallicRoughnessTex, int aoTex, int emissiveTex, int indexs[3], float z0, float z1, float z2);

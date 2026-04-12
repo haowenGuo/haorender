@@ -69,6 +69,7 @@ public:
 		zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	}
 	int add_Light(const Vector4f& l);
+	int add_Light(const Vector4f& l, const Vector3f& color);
 	int set_translation(float dx, float dy, float dz);
 	int set_scal(float dx, float dy, float dz);
 	int set_rotate(float angel, const Vector3f& axis);
@@ -91,6 +92,7 @@ public:
 	int setTexture(const char* path);
 	int setNMTexture(const char* path);
 	int setSpecTexture(const char* path);
+	int setEnvironmentMap(const char* path);
 	int closeBackCut();
 	int closeZbuff() { zbuff_open = 0; return 1; };
 	int openShadow() { shadow_on = 1; if (complexshader) complexshader->shadow_on = 1; return 1; };
@@ -115,6 +117,7 @@ public:
 	int shadow_far_width = 1024;
 	int shadow_far_height = 1024;
 	vector<Vector4f> light_dir;
+	vector<Vector3f> light_color;
 	
 	RenderDepthBuffer zbuff;
 	Matrix4f model = Matrix4f::Identity();
@@ -126,6 +129,7 @@ public:
 	shared_ptr<TGAImage> texture;
 	shared_ptr<TGAImage> nmtexture ;
 	shared_ptr<TGAImage> spectexture ;
+	MyImage environment_map;
 	FrameProfile last_profile;
 	vector<vector<int>> tile_bins_cache;
 	ShadowTechnique shadow_technique = ShadowTechnique::ShadowMap;

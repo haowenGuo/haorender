@@ -5,11 +5,52 @@
 #include <chrono>
 #include <thread>
 #include <algorithm>
+#include <filesystem>
+#include <stb_image.h>
 
 namespace {
 double durationMs(const std::chrono::high_resolution_clock::time_point& start,
 	const std::chrono::high_resolution_clock::time_point& end) {
 	return std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(end - start).count();
+}
+
+MyImage loadImageFile(const char* path) {
+	if (path == nullptr) {
+		return MyImage();
+	}
+	if (stbi_is_hdr(path)) {
+		int width = 0;
+		int height = 0;
+		int channels = 0;
+		float* hdrData = stbi_loadf(path, &width, &height, &channels, 0);
+		if (!hdrData) {
+			std::cerr << "[IBL] 无法加载 HDR 环境贴图: " << path << std::endl;
+			return MyImage();
+		}
+		std::vector<unsigned char> ldrData(width * height * channels, 0);
+		for (size_t i = 0; i < ldrData.size(); ++i) {
+			float mapped = hdrData[i] / (1.0f + hdrData[i]);
+			ldrData[i] = static_cast<unsigned char>(std::clamp(mapped, 0.0f, 1.0f) * 255.0f);
+		}
+		stbi_image_free(hdrData);
+		MyImage image(ldrData.data(), width, height, channels);
+		std::cout << "[IBL] 成功加载 HDR 环境贴图: " << std::filesystem::path(path).lexically_normal().generic_string()
+			<< " (" << width << "x" << height << ", channels=" << channels << ")" << std::endl;
+		return image;
+	}
+	int width = 0;
+	int height = 0;
+	int channels = 0;
+	unsigned char* data = stbi_load(path, &width, &height, &channels, 0);
+	if (!data) {
+		std::cerr << "[IBL] 无法加载环境贴图: " << path << std::endl;
+		return MyImage();
+	}
+	MyImage image(data, width, height, channels);
+	stbi_image_free(data);
+	std::cout << "[IBL] 成功加载环境贴图: " << std::filesystem::path(path).lexically_normal().generic_string()
+		<< " (" << width << "x" << height << ", channels=" << channels << ")" << std::endl;
+	return image;
 }
 }
 
@@ -35,11 +76,17 @@ shared_ptr<TGAImage>  readTga(const char* path) {
 }
 
 int render::add_Light(const Vector4f& l) {
+	return add_Light(l, Vector3f::Ones());
+}
+
+int render::add_Light(const Vector4f& l, const Vector3f& color) {
 	light_dir.push_back(l.normalized());
+	light_color.push_back(color.cwiseMax(0.0f));
 	shadow_cache_dirty = 1;
 	ray_scene_dirty = 1;
 	if (complexshader) {
 		complexshader->addLight(*(light_dir.end() - 1));
+		complexshader->light_colors = light_color;
 	}
 	return 1;
 }
@@ -212,6 +259,18 @@ int render::closeBackCut() { backcut = 0; return 1; };
 int render::setTexture(const char* path) { texture = readTga(path); return 1;}
 int render::setNMTexture(const char* path) { nmtexture = readTga(path);return 1; }
 int render::setSpecTexture(const char* path) { spectexture = readTga(path); return 1;}
+int render::setEnvironmentMap(const char* path) {
+	environment_map = loadImageFile(path);
+	if (complexshader) {
+		if (environment_map.data && environment_map.width > 0 && environment_map.height > 0) {
+			complexshader->setEnvironmentMap(environment_map);
+		}
+		else {
+			complexshader->clearEnvironmentMap();
+		}
+	}
+	return environment_map.data ? 1 : 0;
+}
 int render::setSimpleShader() {
 	myshader = make_shared<SimpleShader>(); 
 	myshader->setTgatexture(texture);
@@ -241,6 +300,13 @@ int render::setComplexShader(const Model& m ) {
 	complexshader->world_normals.resize(maxsize);
 	complexshader->reciprocal_ws.resize(maxsize, 1.0f);
 	complexshader->setTexture(m.images);
+	complexshader->light_colors = light_color;
+	if (environment_map.data && environment_map.width > 0 && environment_map.height > 0) {
+		complexshader->setEnvironmentMap(environment_map);
+	}
+	else {
+		complexshader->buildBrdfLut();
+	}
 
 	return 1;
 
@@ -382,6 +448,7 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	complexshader->ray_shadow_on = 0;
 	complexshader->ray_backend = nullptr;
 	complexshader->light_dirs_world.clear();
+	complexshader->light_colors = light_color;
 	for (const auto& l : light_dir) {
 		complexshader->light_dirs_world.push_back(l.head<3>().normalized());
 	}
