@@ -6,6 +6,7 @@
 #include <Eigen/Dense>
 #include <array>
 #include <memory>
+#include "programmable_shader.h"
 using namespace cv;
 using namespace Eigen;
 class RayTracingBackend;
@@ -120,6 +121,16 @@ public:
 	float ibl_diffuse_strength = 0.55f;
 	float ibl_specular_strength = 0.8f;
 	float sky_light_strength = 0.2f;
+	int force_stylized_phong = 0;
+	int phong_use_tonemap = 0;
+	int phong_primary_light_only = 1;
+	float phong_secondary_light_scale = 0.18f;
+	float phong_ambient_strength = 0.035f;
+	float phong_specular_strength = 0.14f;
+	int phong_hard_specular = 0;
+	int phong_toon_diffuse = 0;
+	int force_programmable_shader = 0;
+	std::shared_ptr<ProgrammableShaderProgram> programmable_shader_program;
 	const RayTracingBackend* ray_backend = nullptr;
 	Matrix4f uniform_M_worldIT = Matrix4f::Identity();
 	Vector2f uv[3];

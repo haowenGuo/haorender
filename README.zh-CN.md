@@ -1,138 +1,229 @@
 # haorender
 
-haorender 是一个使用 C++ 编写的 CPU 软渲染器，用来实验和学习完整渲染管线：模型加载、相机控制、光栅化、深度缓冲、阴影贴图、Phong 着色，以及早期 PBR 材质支持。
+haorender 是一个以学习和研究为目标的 C++ CPU 软渲染器，并配套了一套 Qt 桌面工作台，用于场景查看、着色调试、参数迭代和性能分析。
 
-这个项目更偏学习和研究，不是生产级引擎。当前目标是让渲染管线尽量清晰、可调试，同时保持足够的交互性能，可以在 OpenCV 窗口中查看真实模型。
+它保留了“可读、可改、可调试”的软渲染主干，同时补上了真正能日常使用的桌面工具层：模型导入、材质检查、阴影控制、着色模式切换、Profiler 回读、预设保存/读取、会话恢复，以及可选的 Embree 混合阴影路径。
 
-## 其他语言
+## 语言
 
 - [English](README.md)
 - [日本語](README.ja.md)
 
-## 功能特性
+## 当前状态
 
-- 基于 Assimp 加载 FBX/OBJ 等模型资源
-- 使用 OpenCV 窗口显示渲染结果，并支持鼠标相机控制
-- 透视投影、视口变换、背面剔除和 ZBuffer
-- 视锥裁剪，用于避免镜头靠近模型时三角形投影成巨大屏幕包围盒
-- 基于 tile 的光栅化和 OpenMP 并行
-- 支持 diffuse、normal、specular 以及部分 PBR 贴图读取
-- 支持 metallic、roughness、AO、emissive 的 PBR 通道映射切换
-- Phong 着色支持 sRGB/线性转换、色调映射、法线强度控制和更稳定的高光响应
-- 阴影贴图支持更高分辨率、近远级联分层和渐变 PCF 软阴影
-- 可选 `光栅化 + Embree` 阴影模式，主渲染仍然走原本光栅化，只把遮挡查询交给 Embree
+- 当前主程序入口：[`qt_main.cpp`](qt_main.cpp)
+- 旧版 OpenCV 原型保留用于参考：[`main.cpp`](main.cpp)
+- 主目标程序：`myrender`
+- 当前重点平台：Windows 桌面
 
-## 环境要求
+## 核心亮点
 
-- C++17 编译器
-- CMake 3.10+
-- OpenCV
-- Assimp
-- Eigen
-- 支持 OpenMP 的编译器，推荐开启
-- Embree 4，可选，用于启用混合式光栅化 + 光追阴影路径
+### 渲染器本体
 
-当前 Windows 环境下项目根目录包含一个本地 `assimp-vc143-mtd.dll`。如果你的 Assimp 安装路径不同，可以修改 `CMakeLists.txt`，或者在 CMake 配置时传入正确的 Assimp 路径。
+- CPU 光栅化主干：透视投影、视口变换、裁剪、背面剔除、ZBuffer
+- 已加入视锥裁剪与 tile 分桶，避免近景三角形炸成巨大屏幕包围盒
+- 在可用环境下支持 OpenMP 多线程
+- 可选 `Raster + Embree` 混合阴影模式，不改变主渲染仍以光栅化为核心的架构
+- 一套更适合风格化调试的 Phong 路径
+- 一套包含 IBL、通道映射、tone mapping、线性/sRGB 转换的 PBR 路径
+- 一套轻量可编程片元着色 DSL，用于 look-dev 和调试
 
-## 构建
+### Qt 桌面工作台
 
-```powershell
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
-```
+- 提供 Workspace、Scene、Shading、Lights、Materials、Inspect 多页签工作流
+- 支持中英双语界面切换
+- 支持主题切换、会话恢复
+- 支持渲染背景颜色 / 图片切换
+- 支持分辨率预设、阴影参数、灯光参数、着色参数统一面板调节
+- 支持材质概览和运行时性能分析面板
+- 支持预设保存 / 读取
 
-如果 CMake 找不到 Eigen 或 Assimp，可以显式传入路径：
+## 着色模式
 
-```powershell
-cmake -S . -B build -DEIGEN3_INCLUDE_DIR="path\to\eigen3" -DASSIMP_INCLUDE_DIR="path\to\assimp\include"
-cmake --build build --config Release
-```
+### 写实 PBR
 
-如果想实验半精度深度缓冲，可以开启：
+- IBL 漫反射 / 高光强度控制
+- 天空光控制
+- metallic / roughness / AO / emissive 通道映射
+- tone mapping 输出链路
 
-```powershell
-cmake -S . -B build-half -DHAO_RENDER_DEPTH_HALF=ON
-cmake --build build-half --config Release
-```
+### 风格化 Phong
 
-半精度可以降低 ZBuffer 和 shadow map 的内存带宽，但也可能带来深度精度问题。默认构建使用 `float` 深度缓冲，作为更稳的性能基线。
+- 硬边 / 柔边高光
+- 卡通分段漫反射
+- tone mapping 开关
+- 更强调主光风格化表现
 
-如果想实验半精度顶点存储，可以开启：
+### 可编程着色器
 
-```powershell
-cmake -S . -B build-vertex-half -DHAO_RENDER_VERTEX_HALF=ON
-cmake --build build-vertex-half --config Release
-```
+- 轻量表达式式片元着色 DSL
+- 直接在 Qt 界面内编辑
+- 内置默认光照、卡通、描边、法线调试、阴影调试模板
+- 带有编译状态、使用说明，以及“编译失败保留上一版成功程序”的安全回退
 
-这个选项会把加载后的 position、normal、tangent、bitangent、UV 存成 `Eigen::half`，然后在 CPU MVP 和着色路径里转回 `float` 使用。在普通 CPU 上它主要降低顶点内存带宽，不保证矩阵乘法一定更快，除非硬件和编译器能高效执行半精度运算。
+## 直接下载使用
 
-如果想启用可选的 Embree 后端，可以这样构建：
+对于不想自己编译的用户，推荐发布一个 Windows 便携包：
 
-```powershell
-cmake -S . -B build-embree -DHAO_RENDER_ENABLE_EMBREE=ON -DEMBREE_INCLUDE_DIR="path\to\embree\include" -DEMBREE_LIBRARY="path\to\embree4.lib"
-cmake --build build-embree --config Release
-```
+1. 下载 release zip，例如 `haorender-windows-portable.zip`
+2. 解压到任意可写目录
+3. 保持 `Resources` 文件夹与可执行文件同级
+4. 直接运行 `myrender.exe`
 
-如果没有找到 Embree，项目也仍然可以正常构建，并自动继续使用原来的 shadow map 路径。
-
-## 运行
-
-进入构建输出目录后运行：
+可选启动方式：
 
 ```powershell
 .\myrender.exe
+.\myrender.exe .\Resources\MAIFU\IF.fbx
+.\myrender.exe .\Resources\MAIFU\IF.fbx --shadow-technique=embree
 ```
 
-也可以传入模型路径：
+仓库已经附带 Windows 便携包打包脚本：
 
 ```powershell
-.\myrender.exe ..\Resources\MAIFU\IF.fbx
+powershell -ExecutionPolicy Bypass -File .\scripts\package_windows_portable.ps1 -BuildDir .\build-nonhalf\Release -Zip
 ```
 
-也可以在启动时直接指定阴影后端：
+这个脚本会把 Release 目录中的可执行文件、运行时 DLL、Qt 部署目录、`Resources`、中英 README 一起打成便携包目录，并可选输出 zip。
+
+## 从源码构建
+
+### 依赖
+
+- CMake 3.10+
+- C++17 编译器
+- Qt 5 Widgets
+- OpenCV
+- Assimp
+- Eigen
+- 推荐支持 OpenMP 的编译器
+- Embree 4 可选
+
+### 构建命令
 
 ```powershell
-.\myrender.exe ..\Resources\MAIFU\IF.fbx --shadow-technique=embree
+cmake -S . -B build-nonhalf -DCMAKE_BUILD_TYPE=Release
+cmake --build build-nonhalf --config Release
 ```
 
-`main.cpp` 中的默认模型路径是：
+如果 CMake 无法自动找到依赖，可以显式传入路径：
 
-```text
-../Resources/MAIFU/IF.fbx
+```powershell
+cmake -S . -B build-nonhalf `
+  -DEIGEN3_INCLUDE_DIR="path\to\eigen3" `
+  -DASSIMP_INCLUDE_DIR="path\to\assimp\include" `
+  -DEMBREE_ROOT_DIR="path\to\embree"
+cmake --build build-nonhalf --config Release
 ```
 
-## 操作方式
+### 常用选项
+
+```powershell
+-DHAO_RENDER_ENABLE_EMBREE=ON
+-DHAO_RENDER_DEPTH_HALF=ON
+-DHAO_RENDER_VERTEX_HALF=ON
+```
+
+- `HAO_RENDER_ENABLE_EMBREE`：在 Embree 可用时启用混合路径
+- `HAO_RENDER_DEPTH_HALF`：使用半精度深度缓冲 / 阴影深度
+- `HAO_RENDER_VERTEX_HALF`：使用半精度存储加载后的顶点属性
+
+## 运行
+
+默认运行方式：
+
+```powershell
+.\build-nonhalf\Release\myrender.exe
+```
+
+也可以在命令行传入模型路径和阴影后端：
+
+```powershell
+.\build-nonhalf\Release\myrender.exe .\Resources\MAIFU\IF.fbx
+.\build-nonhalf\Release\myrender.exe .\Resources\MAIFU\IF.fbx --shadow-technique=embree
+```
+
+如果不传模型路径，程序会尝试从仓库内置候选路径中加载默认资源。
+
+## 桌面工作流
+
+### Scene
+
+- 相机 FOV
+- 曝光
+- 法线强度
+- 内部渲染分辨率预设
+- 背面剔除
+- 阴影分辨率 / 范围 / 深度 / 级联参数
+
+### Shading
+
+- PBR / 风格化 Phong / 可编程着色 三种模式切换
+- 每种模式都有对应独立参数面板
+
+### Lights
+
+- 最多三盏方向光
+- 每盏灯支持 yaw、pitch、强度、RGB 颜色调节
+
+### Materials
+
+- 每个 mesh 的材质概览
+- 纹理路径检查
+
+### Inspect
+
+- mesh / triangle / vertex 数统计
+- 当前渲染分辨率
+- Embree 可用性
+- 相机参数回读
+- 帧分阶段 Profiler
+
+## 视口交互
 
 - 鼠标左键拖动：环绕观察
-- 鼠标右键拖动：平移相机
+- 鼠标右键或中键拖动：平移
 - 鼠标滚轮：缩放
-- `r`：重置相机
-- `w`、`a`、`s`、`d`：快速旋转模型
-- `1`、`2`、`3`：切换 PBR 通道映射预设
-- `4`：切换到原本的 shadow map 阴影路径
-- `5`：在 Embree 可用时切换到 `光栅化 + Embree` 阴影模式
-- `Esc`：退出
+- 工具栏和面板：用于加载模型、环境图和调节渲染参数
 
-## 当前说明
-
-- 渲染器目前是 CPU 软渲染实现，很多管线阶段都保留在项目代码中，便于学习和调试。
-- PBR 路径已经有基础实现，但很多模型只提供 diffuse 贴图，因此 Phong 路径仍然很重要。
-- 阴影已经加入近远分层和 PCF 优化，但 shadow map 生成仍然是主要性能开销之一。
-- 后续很适合扩展一套 GPU 后端，例如 OpenGL Renderer，复用当前的模型和材质加载流程。
-
-## 目录结构
+## 仓库结构
 
 ```text
-include/        模型、渲染器、着色器、绘制工具和图像工具头文件
-Resources/      示例模型和贴图资源
-main.cpp        OpenCV 主循环和相机控制
-model.cpp       Assimp 模型、材质、贴图加载
-render.cpp      渲染调度、阴影 pass、tile 分块和帧渲染
-shader.cpp      光栅化、裁剪、片元着色、阴影和 PBR/Phong 逻辑
-Drawer.cpp      绘制辅助函数
-tgaimage.cpp    TGA 图像支持
+include/                    核心头文件
+Resources/                  示例模型、贴图、环境图
+qt_main.cpp                 当前 Qt 桌面主程序与 UI
+main.cpp                    旧版 OpenCV 原型路径
+model.cpp                   模型、材质、贴图加载
+render.cpp                  渲染调度、阴影 pass、分桶与状态控制
+shader.cpp                  光栅化、裁剪、着色、阴影、PBR / Phong 逻辑
+programmable_shader.cpp     小型可编程着色器编译/解释执行器
+raytrace_backend.cpp        Embree 辅助路径
+scripts/                    打包与辅助脚本
 ```
 
-## License
+## 推荐发布目录结构
 
-目前还没有添加明确开源许可证。公开分发或接受外部贡献前，建议补充 LICENSE 文件。
+```text
+haorender-windows-portable/
+  myrender.exe
+  assimp-vc143-mtd.dll
+  opencv_world*.dll
+  Qt5*.dll
+  embree4.dll                （若可用）
+  tbb12.dll                  （若可用）
+  platforms/
+  imageformats/
+  styles/
+  iconengines/
+  Resources/
+  README.md
+  README.zh-CN.md
+```
+
+## 说明
+
+- 这个仓库目前仍然是“学习级渲染器”，不是生产引擎。
+- 现在 Qt 桌面工作台已经是主体验入口。
+- 旧 OpenCV 原型仍然保留，适合作为简化参考实现。
+- 当前尚未加入明确开源许可证。
+

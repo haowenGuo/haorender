@@ -83,12 +83,38 @@ int render::add_Light(const Vector4f& l, const Vector3f& color) {
 	light_dir.push_back(l.normalized());
 	light_color.push_back(color.cwiseMax(0.0f));
 	shadow_cache_dirty = 1;
-	ray_scene_dirty = 1;
 	if (complexshader) {
 		complexshader->addLight(*(light_dir.end() - 1));
 		complexshader->light_colors = light_color;
 	}
 	return 1;
+}
+
+void render::setLights(const vector<Vector4f>& dirs, const vector<Vector3f>& colors) {
+	light_dir.clear();
+	light_color.clear();
+	for (size_t i = 0; i < dirs.size(); ++i) {
+		Vector4f dir = dirs[i];
+		if (dir.head<3>().squaredNorm() <= 1e-8f) {
+			continue;
+		}
+		light_dir.push_back(dir.normalized());
+		Vector3f color = i < colors.size() ? colors[i] : Vector3f::Ones();
+		light_color.push_back(color.cwiseMax(0.0f));
+	}
+	shadow_cache_dirty = 1;
+	shadow_cache_valid = 0;
+	if (complexshader) {
+		complexshader->light_dirs = light_dir;
+		complexshader->light_colors = light_color;
+	}
+}
+
+void render::setProgrammableShaderProgram(const shared_ptr<ProgrammableShaderProgram>& program) {
+	programmable_shader_program = program;
+	if (complexshader) {
+		complexshader->programmable_shader_program = programmable_shader_program;
+	}
 }
 int render::set_translation(float dx, float dy, float dz) {
 	Eigen::Matrix4f translate;
@@ -249,7 +275,25 @@ Matrix4f render::get_viewport2(float x, float y, float w, float h,float near, fl
 }
 
 int render::clear(Mat& image) {
-	image = Mat::Mat(height, weight, CV_8UC3, Scalar(155, 155, 155));
+	image = Mat(height, weight, CV_8UC3);
+	if (!clear_background_image.empty()) {
+		Mat source = clear_background_image;
+		if (source.channels() == 4) {
+			cvtColor(source, source, COLOR_BGRA2BGR);
+		}
+		else if (source.channels() == 1) {
+			cvtColor(source, source, COLOR_GRAY2BGR);
+		}
+		if (source.cols != weight || source.rows != height) {
+			resize(source, image, Size(weight, height), 0.0, 0.0, INTER_LINEAR);
+		}
+		else {
+			source.copyTo(image);
+		}
+	}
+	else {
+		image.setTo(clear_color);
+	}
 	zbuff = RenderDepthBuffer(height, weight );
 	zbuff.setConstant(makeRenderDepth(RENDER_DEPTH_CLEAR));
 	return 1;
@@ -300,7 +344,9 @@ int render::setComplexShader(const Model& m ) {
 	complexshader->world_normals.resize(maxsize);
 	complexshader->reciprocal_ws.resize(maxsize, 1.0f);
 	complexshader->setTexture(m.images);
+	complexshader->light_dirs = light_dir;
 	complexshader->light_colors = light_color;
+	complexshader->programmable_shader_program = programmable_shader_program;
 	if (environment_map.data && environment_map.width > 0 && environment_map.height > 0) {
 		complexshader->setEnvironmentMap(environment_map);
 	}
@@ -389,13 +435,13 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 			ShadowShader::PassProfile nearProfile;
 			ShadowShader::PassProfile farProfile;
 			auto shadowNearStart = std::chrono::high_resolution_clock::now();
-			draw_ShadowTexture(shadow_map_near, mymodel, 1.4f, 3.0f, lvNear, lpNear, lvpNear, &nearProfile);
+			draw_ShadowTexture(shadow_map_near, mymodel, shadow_near_extent, shadow_near_depth, lvNear, lpNear, lvpNear, &nearProfile);
 			auto shadowNearEnd = std::chrono::high_resolution_clock::now();
 			last_profile.shadow_near_ms = durationMs(shadowNearStart, shadowNearEnd);
 			last_profile.shadow_near_vertex_ms = nearProfile.vertex_ms;
 			last_profile.shadow_near_raster_ms = nearProfile.raster_ms;
 			auto shadowFarStart = std::chrono::high_resolution_clock::now();
-			draw_ShadowTexture(shadow_map_far, mymodel, 4.0f, 8.0f, lvFar, lpFar, lvpFar, &farProfile);
+			draw_ShadowTexture(shadow_map_far, mymodel, shadow_far_extent, shadow_far_depth, lvFar, lpFar, lvpFar, &farProfile);
 			auto shadowFarEnd = std::chrono::high_resolution_clock::now();
 			last_profile.shadow_far_ms = durationMs(shadowFarStart, shadowFarEnd);
 			last_profile.shadow_far_vertex_ms = farProfile.vertex_ms;
@@ -424,9 +470,9 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 			last_profile.shadow_far_ms = 0.0;
 		}
 		complexshader->shadow_on = 1;
-		complexshader->shadow_cascade_on = 1;
-		complexshader->cascade_split = 2.2f;
-		complexshader->cascade_blend = 0.6f;
+		complexshader->shadow_cascade_on = shadow_cascade_enabled;
+		complexshader->cascade_split = shadow_cascade_split;
+		complexshader->cascade_blend = shadow_cascade_blend;
 
 		/*
 		for (int i = 0; i < shadow_map.width; i++)
@@ -442,8 +488,22 @@ int	render::draw_completed(Mat& image, Model& mymodel) {
 	complexshader->setUniform_V(view);
 	complexshader->setUniform_P(projection);
 	complexshader->setUniform_MIT(view);
-	complexshader->normal_strength = 0.7f;
-	complexshader->exposure = 1.0f;
+	complexshader->normal_strength = normal_strength;
+	complexshader->exposure = exposure;
+	complexshader->ibl_on = ibl_enabled && !complexshader->environment_mips.empty() ? 1 : 0;
+	complexshader->ibl_diffuse_strength = ibl_diffuse_strength;
+	complexshader->ibl_specular_strength = ibl_specular_strength;
+	complexshader->sky_light_strength = sky_light_strength;
+	complexshader->force_stylized_phong = shading_look == ShadingLook::StylizedPhong ? 1 : 0;
+	complexshader->phong_use_tonemap = phong_use_tonemap;
+	complexshader->phong_primary_light_only = phong_primary_light_only;
+	complexshader->phong_secondary_light_scale = phong_secondary_light_scale;
+	complexshader->phong_ambient_strength = phong_ambient_strength;
+	complexshader->phong_specular_strength = phong_specular_strength;
+	complexshader->phong_hard_specular = phong_hard_specular;
+	complexshader->phong_toon_diffuse = phong_toon_diffuse;
+	complexshader->force_programmable_shader = shading_look == ShadingLook::Programmable ? 1 : 0;
+	complexshader->programmable_shader_program = programmable_shader_program;
 	complexshader->shadow_on = 0;
 	complexshader->ray_shadow_on = 0;
 	complexshader->ray_backend = nullptr;

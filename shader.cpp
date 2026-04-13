@@ -81,6 +81,22 @@ Vector3f tonemapReinhard(const Vector3f& c) {
 	return out;
 }
 
+float quantizeToonDiffuse(float value) {
+	if (value <= 0.0f) {
+		return 0.0f;
+	}
+	if (value < 0.22f) {
+		return 0.12f;
+	}
+	if (value < 0.5f) {
+		return 0.38f;
+	}
+	if (value < 0.78f) {
+		return 0.68f;
+	}
+	return 1.0f;
+}
+
 Vector3f colorToRgb01(const MyColor& c) {
 	if (c.channels >= 3) {
 		return Vector3f(
@@ -886,9 +902,6 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 	u = wrap01(u);
 	v = wrap01(v);
 
-	float intense_diff = 0.f;
-	float intense_spec = 0.f;
-	float ambient = 30.f;
 	float spec = 16.f;
 	Vector4f n0 = x * triangle[0].normal + y * triangle[1].normal + z * triangle[2].normal;
 	n0[3] = 0.f;
@@ -1017,57 +1030,127 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 		spec = col_spec.b / 1.f;
 	}
 
-	bool usePbr = baseColorTex >= 0 || metallicTex >= 0 || roughnessTex >= 0 || metallicRoughnessTex >= 0 || aoTex >= 0 || emissiveTex >= 0;
+	MaterialPbrChannelMap map = pbr_channel_map;
+	Vector3f albedo = Vector3f(col[2], col[1], col[0]) / 255.0f;
+	albedo = albedo.array().pow(2.2f);
+
+	float metallic = 0.0f;
+	float roughness = 0.8f;
+	if (metallicRoughnessTex >= 0) {
+		MyColor mr = sampleTexture(textures, metallicRoughnessTex, u, v);
+		roughness = std::clamp(channelValue01(mr, map.roughness_channel), 0.04f, 1.0f);
+		metallic = std::clamp(channelValue01(mr, map.metallic_channel), 0.0f, 1.0f);
+	}
+	if (metallicTex >= 0) {
+		MyColor mt = sampleTexture(textures, metallicTex, u, v);
+		metallic = std::clamp(channelValue01(mt, map.metallic_channel), 0.0f, 1.0f);
+	}
+	if (roughnessTex >= 0) {
+		MyColor rt = sampleTexture(textures, roughnessTex, u, v);
+		roughness = std::clamp(channelValue01(rt, map.roughness_channel), 0.04f, 1.0f);
+	}
+
+	float ao = 1.0f;
+	if (aoTex >= 0) {
+		MyColor aoSample = sampleTexture(textures, aoTex, u, v);
+		ao = std::clamp(channelValue01(aoSample, map.ao_channel), 0.0f, 1.0f);
+	}
+
+	Vector3f emissive(0.f, 0.f, 0.f);
+	if (emissiveTex >= 0) {
+		MyColor em = sampleTexture(textures, emissiveTex, u, v);
+		if (em.channels >= 3) {
+			emissive = Vector3f(em.b, em.g, em.r) / 255.0f;
+		}
+		else {
+			float e = channelValue01(em, map.emissive_channel);
+			emissive = Vector3f(e, e, e);
+		}
+		emissive = emissive.array().pow(2.2f);
+	}
+
+	Vector3f N = n0.head<3>();
+	if (N.squaredNorm() > 1e-8f) {
+		N.normalize();
+	}
+	Vector3f V = -(x * triangle[0].view_position + y * triangle[1].view_position + z * triangle[2].view_position);
+	if (V.squaredNorm() <= 1e-8f) {
+		V = Vector3f(0.f, 0.f, 1.f);
+	}
+	V.normalize();
+
+	Vector3f primaryLightDir = Vector3f(0.0f, 0.0f, 1.0f);
+	if (!light_dirs.empty() && light_dirs[0].head<3>().squaredNorm() > 1e-8f) {
+		primaryLightDir = -light_dirs[0].head<3>().normalized();
+	}
+	Vector3f primaryLightColor = !light_colors.empty() ? light_colors[0] : Vector3f::Ones();
+	primaryLightColor[0] = std::max(primaryLightColor[0], 0.0f);
+	primaryLightColor[1] = std::max(primaryLightColor[1], 0.0f);
+	primaryLightColor[2] = std::max(primaryLightColor[2], 0.0f);
+	float primaryNdotL = std::max(N.dot(primaryLightDir), 0.0f);
+	float primaryNdotV = std::max(N.dot(V), 0.0f);
+	Vector3f primaryHalf = V + primaryLightDir;
+	if (primaryHalf.squaredNorm() > 1e-8f) {
+		primaryHalf.normalize();
+	}
+	float programmableSpecular = std::pow(std::max(N.dot(primaryHalf), 0.0f), std::max(8.0f, spec * 1.35f));
+	float rimFactor = std::pow(std::max(1.0f - primaryNdotV, 0.0f), 2.0f);
+	float halfLambert = primaryNdotL * 0.5f + 0.5f;
+
+	if (force_programmable_shader && programmable_shader_program) {
+		ProgrammableShaderProgram::Inputs inputs;
+		inputs.uv_u = u;
+		inputs.uv_v = v;
+		inputs.base_r = albedo[0];
+		inputs.base_g = albedo[1];
+		inputs.base_b = albedo[2];
+		inputs.base_luma = 0.2126f * albedo[0] + 0.7152f * albedo[1] + 0.0722f * albedo[2];
+		inputs.n_x = N[0];
+		inputs.n_y = N[1];
+		inputs.n_z = N[2];
+		inputs.v_x = V[0];
+		inputs.v_y = V[1];
+		inputs.v_z = V[2];
+		inputs.l_x = primaryLightDir[0];
+		inputs.l_y = primaryLightDir[1];
+		inputs.l_z = primaryLightDir[2];
+		inputs.light_r = primaryLightColor[0];
+		inputs.light_g = primaryLightColor[1];
+		inputs.light_b = primaryLightColor[2];
+		inputs.ndotl = primaryNdotL;
+		inputs.ndotv = primaryNdotV;
+		inputs.half_lambert = halfLambert;
+		inputs.rim = rimFactor;
+		inputs.shadow = shadowVisibility;
+		inputs.metallic = metallic;
+		inputs.roughness = roughness;
+		inputs.ao = ao;
+		inputs.emissive_r = emissive[0];
+		inputs.emissive_g = emissive[1];
+		inputs.emissive_b = emissive[2];
+		inputs.ambient = phong_ambient_strength;
+		inputs.specular = programmableSpecular * phong_specular_strength;
+		inputs.exposure = exposure;
+
+		float outR = 0.0f;
+		float outG = 0.0f;
+		float outB = 0.0f;
+		if (programmable_shader_program->evaluate(inputs, outR, outG, outB)) {
+			Vector3f colorLinear(std::max(outR, 0.0f), std::max(outG, 0.0f), std::max(outB, 0.0f));
+			colorLinear *= exposure;
+			Vector3f colorMapped = tonemapReinhard(colorLinear);
+			Vector3f colorSRGB = linearToSrgb(colorMapped.cwiseMax(Vector3f::Zero()));
+			color = Vec3b(
+				clampColor(colorSRGB[2] * 255.0f),
+				clampColor(colorSRGB[1] * 255.0f),
+				clampColor(colorSRGB[0] * 255.0f));
+			return 1;
+		}
+	}
+
+	bool materialHasPbr = baseColorTex >= 0 || metallicTex >= 0 || roughnessTex >= 0 || metallicRoughnessTex >= 0 || aoTex >= 0 || emissiveTex >= 0;
+	bool usePbr = materialHasPbr && !force_stylized_phong && !(force_programmable_shader && programmable_shader_program);
 	if (usePbr) {
-		MaterialPbrChannelMap map = pbr_channel_map;
-		Vector3f albedo = Vector3f(col[2], col[1], col[0]) / 255.0f;
-		albedo = albedo.array().pow(2.2f);
-
-		float metallic = 0.0f;
-		float roughness = 0.8f;
-		if (metallicRoughnessTex >= 0) {
-			MyColor mr = sampleTexture(textures, metallicRoughnessTex, u, v);
-			roughness = std::clamp(channelValue01(mr, map.roughness_channel), 0.04f, 1.0f);
-			metallic = std::clamp(channelValue01(mr, map.metallic_channel), 0.0f, 1.0f);
-		}
-		if (metallicTex >= 0) {
-			MyColor mt = sampleTexture(textures, metallicTex, u, v);
-			metallic = std::clamp(channelValue01(mt, map.metallic_channel), 0.0f, 1.0f);
-		}
-		if (roughnessTex >= 0) {
-			MyColor rt = sampleTexture(textures, roughnessTex, u, v);
-			roughness = std::clamp(channelValue01(rt, map.roughness_channel), 0.04f, 1.0f);
-		}
-
-		float ao = 1.0f;
-		if (aoTex >= 0) {
-			MyColor aoSample = sampleTexture(textures, aoTex, u, v);
-			ao = std::clamp(channelValue01(aoSample, map.ao_channel), 0.0f, 1.0f);
-		}
-
-		Vector3f emissive(0.f, 0.f, 0.f);
-		if (emissiveTex >= 0) {
-			MyColor em = sampleTexture(textures, emissiveTex, u, v);
-			if (em.channels >= 3) {
-				emissive = Vector3f(em.b, em.g, em.r) / 255.0f;
-			}
-			else {
-				float e = channelValue01(em, map.emissive_channel);
-				emissive = Vector3f(e, e, e);
-			}
-			emissive = emissive.array().pow(2.2f);
-		}
-
-		Vector3f N = n0.head<3>();
-		if (N.squaredNorm() > 1e-8f) {
-			N.normalize();
-		}
-		Vector3f V = -(x * triangle[0].view_position + y * triangle[1].view_position + z * triangle[2].view_position);
-		if (V.squaredNorm() <= 1e-8f) {
-			V = Vector3f(0.f, 0.f, 1.f);
-		}
-		V.normalize();
-
 		Vector3f F0(0.04f, 0.04f, 0.04f);
 		F0 = F0 + (albedo - F0) * metallic;
 
@@ -1175,21 +1258,10 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 			clampColor(colorSRGB[0] * 255.0f));
 		return 1;
 	}
-
-	Vector3f N = n0.head<3>();
-	if (N.squaredNorm() > 1e-8f) {
-		N.normalize();
-	}
-	Vector3f V = -(x * triangle[0].view_position + y * triangle[1].view_position + z * triangle[2].view_position);
-	if (V.squaredNorm() <= 1e-8f) {
-		V = Vector3f(0.f, 0.f, 1.f);
-	}
-	V.normalize();
-
-	Vector3f albedo = Vector3f(col[2], col[1], col[0]) / 255.0f;
-	albedo = srgbToLinear(albedo);
-	float specStrength = 0.08f;
-	float shininess = std::max(8.0f, spec * 2.0f);
+	float specStrength = phong_specular_strength;
+	float shininess = std::max(24.0f, spec * 1.35f);
+	Vector3f diffuseLighting = Vector3f::Zero();
+	Vector3f specularLighting = Vector3f::Zero();
 
 	for (int i = 0; i < light_dirs.size(); ++i) {
 		Vector3f L = -light_dirs[i].head<3>();
@@ -1201,29 +1273,38 @@ int ComplexShader::fragmentShaderTriangle(float x, float y, float z, Vec3b& colo
 		if (NdotL <= 1e-6f) {
 			continue;
 		}
+		float diffuseTerm = phong_toon_diffuse ? quantizeToonDiffuse(NdotL) : NdotL;
 		Vector3f H = (V + L);
 		if (H.squaredNorm() > 1e-8f) {
 			H.normalize();
 		}
 		float specTerm = std::pow(std::max(N.dot(H), 0.0f), shininess);
-		float lightEnergy = (i < static_cast<int>(light_colors.size()))
-			? (light_colors[i][0] + light_colors[i][1] + light_colors[i][2]) / 3.0f
-			: 1.0f;
-		intense_diff += NdotL * lightEnergy;
-		intense_spec += specTerm * lightEnergy;
+		if (phong_hard_specular) {
+			specTerm = specTerm > 0.42f ? 1.0f : 0.0f;
+		}
+		Vector3f lightEnergy = Vector3f::Ones();
+		if (i < static_cast<int>(light_colors.size())) {
+			lightEnergy = light_colors[i];
+			lightEnergy[0] = std::max(lightEnergy[0], 0.0f);
+			lightEnergy[1] = std::max(lightEnergy[1], 0.0f);
+			lightEnergy[2] = std::max(lightEnergy[2], 0.0f);
+		}
+		if (phong_primary_light_only) {
+			lightEnergy *= (i == 0) ? 1.0f : phong_secondary_light_scale;
+		}
+		diffuseLighting += lightEnergy * diffuseTerm;
+		specularLighting += lightEnergy * (specStrength * specTerm);
 	}
 
-	float shadowDiffuse = 0.25f + 0.75f * shadowVisibility;
-	float shadowSpec = 0.6f + 0.4f * shadowVisibility;
+	float shadowDiffuse = 0.18f + 0.82f * shadowVisibility;
+	float shadowSpec = 0.85f + 0.15f * shadowVisibility;
 
-	Vector3f diffuse = albedo * intense_diff * shadowDiffuse;
-	Vector3f specular = Vector3f::Ones() * (specStrength * intense_spec * shadowSpec);
-	Vector3f ambientColor = ibl_on && !environment_mips.empty()
-		? sampleEnvironmentLatLong(environment_mips, N, 1.0f).cwiseProduct(albedo) * 0.12f
-		: sampleSkyIrradiance(N).cwiseProduct(albedo) * 0.12f;
+	Vector3f diffuse = albedo.cwiseProduct(diffuseLighting) * shadowDiffuse;
+	Vector3f specular = specularLighting * shadowSpec;
+	Vector3f ambientColor = albedo * phong_ambient_strength;
 	Vector3f colorLinear = (ambientColor + diffuse + specular) * exposure;
-	Vector3f colorMapped = tonemapReinhard(colorLinear);
-	Vector3f colorSrgb = linearToSrgb(colorMapped);
+	Vector3f outputLinear = phong_use_tonemap ? tonemapReinhard(colorLinear) : colorLinear.cwiseMax(Vector3f::Zero());
+	Vector3f colorSrgb = linearToSrgb(outputLinear);
 	color = Vec3b(
 		clampColor(colorSrgb[2] * 255.0f),
 		clampColor(colorSrgb[1] * 255.0f),

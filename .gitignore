@@ -25,6 +25,7 @@ Makefile
 *.tmp
 .idea/
 .vscode/
+dist/
 
 # OS files
 Thumbs.db

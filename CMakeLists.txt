@@ -3,7 +3,12 @@ project(myrender)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(EXISTS "D:/anaconda3/Library/lib/cmake/Qt5")
+	list(PREPEND CMAKE_PREFIX_PATH "D:/anaconda3/Library")
+endif()
+
 find_package(OpenCV REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS Widgets)
 find_package(OpenMP)
 find_package(assimp CONFIG QUIET)
 find_path(EIGEN3_INCLUDE_DIR NAMES Eigen/Core)
@@ -43,12 +48,12 @@ if(HAO_RENDER_ENABLE_EMBREE AND NOT EMBREE_ROOT_DIR)
 	endif()
 endif()
 
-add_executable(myrender main.cpp tgaimage.cpp Drawer.cpp shader.cpp ppp.cpp render.cpp model.cpp raytrace_backend.cpp)
+add_executable(myrender qt_main.cpp tgaimage.cpp Drawer.cpp shader.cpp programmable_shader.cpp ppp.cpp render.cpp model.cpp raytrace_backend.cpp)
 target_include_directories(myrender PRIVATE
 	${EIGEN3_INCLUDE_DIR}
 	${ASSIMP_INCLUDE_DIR}
 	${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(myrender PRIVATE ${OpenCV_LIBRARIES})
+target_link_libraries(myrender PRIVATE ${OpenCV_LIBRARIES} Qt5::Widgets)
 
 if(TARGET assimp::assimp)
 	target_link_libraries(myrender PRIVATE assimp::assimp)
@@ -128,6 +133,18 @@ foreach(OPENCV_RUNTIME_DLL IN LISTS OPENCV_RUNTIME_DLLS)
 			"${OPENCV_RUNTIME_DLL}"
 			"$<TARGET_FILE_DIR:myrender>")
 endforeach()
+
+find_program(WINDEPLOYQT_EXECUTABLE
+	NAMES windeployqt
+	HINTS
+		"D:/anaconda3/Library/bin"
+		"${QT_HOST_BINS}")
+
+if(WIN32 AND WINDEPLOYQT_EXECUTABLE)
+	add_custom_command(TARGET myrender POST_BUILD
+		COMMAND "${WINDEPLOYQT_EXECUTABLE}" --no-translations --no-system-d3d-compiler "$<TARGET_FILE:myrender>"
+		COMMENT "Deploying Qt runtime")
+endif()
 
 if(HAO_RENDER_ENABLE_EMBREE)
 	set(EMBREE_RUNTIME_DLLS "")
