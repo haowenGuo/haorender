@@ -50,7 +50,7 @@ Get-ChildItem -LiteralPath $resolvedBuildDir -Force | ForEach-Object {
 
 Copy-Item -LiteralPath $resourcesDir -Destination $packageDir -Recurse -Force
 
-foreach ($docName in @("README.md", "README.zh-CN.md", "README.ja.md")) {
+foreach ($docName in @("README.md", "README.zh-CN.md", "README.ja.md", "LICENSE", "NOTICE")) {
     $docPath = Join-Path $repoRoot $docName
     if (Test-Path $docPath) {
         Copy-Item -LiteralPath $docPath -Destination $packageDir -Force

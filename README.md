@@ -238,12 +238,20 @@ haorender-windows-portable/
   Resources/
   README.md
   README.zh-CN.md
+  README.ja.md
+  LICENSE
+  NOTICE
 ```
+
+## License / Third-Party Notices
+
+haorender is licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for the full license text and [NOTICE](NOTICE) for attribution information distributed with the project.
+
+This repository and its Windows portable package may include or depend on third-party software components such as Qt, OpenCV, Assimp, Eigen, and Embree. Those components remain under their own licenses and notices. When redistributing binaries, keep the relevant third-party license texts and notices alongside the packaged application where required.
 
 ## Notes
 
 - haorender is now positioned as a semi-industrial CPU renderer and renderer workstation, not merely a pipeline-learning toy.
 - The Qt desktop application is the primary user experience.
 - The OpenCV path is retained because it is still useful for narrow experiments and low-overhead comparison.
-- An explicit open-source license has not yet been added.
 

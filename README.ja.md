@@ -133,6 +133,8 @@ Drawer.cpp      描画補助関数
 tgaimage.cpp    TGA 画像サポート
 ```
 
-## License
+## License / Third-Party Notices
 
-現時点では明示的なライセンスは追加されていません。公開配布や外部コントリビューションを受け入れる前に、LICENSE ファイルを追加することを推奨します。
+haorender は Apache License 2.0 の下で公開されています。ライセンス全文は [LICENSE](LICENSE)、配布時の帰属表示は [NOTICE](NOTICE) を参照してください。
+
+このリポジトリおよび Windows 向け配布物には、Qt、OpenCV、Assimp、Eigen、Embree などのサードパーティーソフトウェアが含まれる、または依存する場合があります。これらのコンポーネントにはそれぞれ独自のライセンスと notice が適用されます。バイナリを再配布する場合は、必要なライセンス文書と notice を同梱してください。

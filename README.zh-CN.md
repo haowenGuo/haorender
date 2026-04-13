@@ -238,12 +238,20 @@ haorender-windows-portable/
   Resources/
   README.md
   README.zh-CN.md
+  README.ja.md
+  LICENSE
+  NOTICE
 ```
+
+## License / Third-Party Notices
+
+haorender 采用 Apache License 2.0 发布。完整许可证文本见 [LICENSE](LICENSE)，项目随附归属说明见 [NOTICE](NOTICE)。
+
+本仓库及其 Windows 便携包可能包含或依赖 Qt、OpenCV、Assimp、Eigen、Embree 等第三方软件组件，这些组件仍分别受其自身许可证和声明约束。若你再分发二进制版本，请按各自要求一并保留相关许可证文本与 notices。
 
 ## 说明
 
 - haorender 当前定位已经是“半工业级 CPU 渲染器与渲染工作台”，不再只是学习性质的小型练习项目。
 - Qt 桌面应用已经是主入口和主体验。
 - OpenCV 路径仍然保留，适合做轻量实验和低开销对照。
-- 当前仓库尚未加入明确开源许可证。
 
