@@ -1,4 +1,5 @@
 # haorender
+<img width="1280" height="769" alt="image" src="https://github.com/user-attachments/assets/029071a7-c503-48ac-8bed-4bcb8e8e56b5" />
 
 haorender is a semi-industrial CPU renderer and desktop rendering workstation written in C++.
 
