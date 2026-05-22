@@ -1,43 +1,111 @@
 cmake_minimum_required(VERSION 3.10)
-project(myrender)
+project(haorender LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(EXISTS "D:/anaconda3/Library/lib/cmake/Qt5")
-	list(PREPEND CMAKE_PREFIX_PATH "D:/anaconda3/Library")
+set(HAO_RENDER_DEPENDENCY_HINT [=[
+Install dependencies with vcpkg:
+  git clone https://github.com/microsoft/vcpkg %USERPROFILE%/vcpkg
+  %USERPROFILE%/vcpkg/bootstrap-vcpkg.bat
+  %USERPROFILE%/vcpkg/vcpkg install --triplet x64-windows
+Then configure with:
+  cmake --preset windows-vcpkg-vs2022
+or pass -DCMAKE_TOOLCHAIN_FILE=/path/to/vcpkg/scripts/buildsystems/vcpkg.cmake
+]=])
+
+if(WIN32 AND NOT DEFINED CMAKE_TOOLCHAIN_FILE AND DEFINED ENV{VCPKG_ROOT}
+	AND EXISTS "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+	message(STATUS "VCPKG_ROOT is set. Prefer configuring with CMakePresets or pass -DCMAKE_TOOLCHAIN_FILE=$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
 endif()
 
-find_package(OpenCV REQUIRED)
-find_package(Qt5 REQUIRED COMPONENTS Widgets)
+find_package(OpenCV CONFIG QUIET)
+if(NOT OpenCV_FOUND)
+	find_package(OpenCV QUIET)
+endif()
+if(NOT OpenCV_FOUND)
+	message(FATAL_ERROR
+		"OpenCV was not found. OpenCV is a required dependency for image buffers, image IO, and UI presentation.\n"
+		"${HAO_RENDER_DEPENDENCY_HINT}\n"
+		"Manual alternative: pass -DOpenCV_DIR=/path/to/opencv/build or install an OpenCV CMake package.")
+endif()
+set(HAO_RENDER_OPENCV_LIBS ${OpenCV_LIBS})
+if(NOT HAO_RENDER_OPENCV_LIBS)
+	set(HAO_RENDER_OPENCV_LIBS ${OpenCV_LIBRARIES})
+endif()
+
+find_package(Qt5 CONFIG QUIET COMPONENTS Widgets)
+if(NOT Qt5_FOUND)
+	message(FATAL_ERROR
+		"Qt5 Widgets was not found. Qt5 is required by the desktop application entry point qt_main.cpp.\n"
+		"${HAO_RENDER_DEPENDENCY_HINT}\n"
+		"Manual alternative: pass -DQt5_DIR=/path/to/Qt5/lib/cmake/Qt5.")
+endif()
+
 find_package(OpenMP)
+
+find_package(Eigen3 CONFIG QUIET)
+set(HAO_RENDER_EIGEN_LIB "")
+set(HAO_RENDER_EIGEN_INCLUDE "")
+if(TARGET Eigen3::Eigen)
+	set(HAO_RENDER_EIGEN_LIB Eigen3::Eigen)
+	get_target_property(HAO_RENDER_EIGEN_INCLUDE Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
+	if(NOT HAO_RENDER_EIGEN_INCLUDE)
+		set(HAO_RENDER_EIGEN_INCLUDE "")
+	endif()
+else()
+	find_path(EIGEN3_INCLUDE_DIR NAMES Eigen/Core)
+	if(EIGEN3_INCLUDE_DIR)
+		set(HAO_RENDER_EIGEN_INCLUDE ${EIGEN3_INCLUDE_DIR})
+	else()
+		message(FATAL_ERROR
+			"Complete Eigen headers were not found. The repository's include/eigen3 directory is not a full Eigen distribution.\n"
+			"${HAO_RENDER_DEPENDENCY_HINT}\n"
+			"Manual alternative: pass -DEIGEN3_INCLUDE_DIR=/path/to/eigen3 where Eigen/Core exists.")
+	endif()
+endif()
+
 find_package(assimp CONFIG QUIET)
-find_path(EIGEN3_INCLUDE_DIR NAMES Eigen/Core)
 set(ASSIMP_INCLUDE_DIR "" CACHE PATH "Path to a complete Assimp include directory")
+set(ASSIMP_LIBRARY "" CACHE FILEPATH "Path to an Assimp import/static library")
 set(EMBREE_ROOT_DIR "" CACHE PATH "Path to Embree root directory")
 set(EMBREE_INCLUDE_DIR "" CACHE PATH "Path to Embree include directory")
 set(EMBREE_LIBRARY "" CACHE FILEPATH "Path to Embree library file")
 option(HAO_RENDER_DEPTH_HALF "Use Eigen::half for z-buffer and shadow depth buffers" OFF)
 option(HAO_RENDER_VERTEX_HALF "Store loaded mesh vertex attributes as Eigen::half" OFF)
 option(HAO_RENDER_ENABLE_EMBREE "Enable Embree-backed ray tracing features when Embree is available" ON)
+option(HAO_RENDER_COPY_BUNDLED_ASSIMP_DLL "Copy the legacy bundled Assimp runtime DLL next to the executable when present" ON)
 
-if(NOT (ASSIMP_INCLUDE_DIR
-	AND EXISTS "${ASSIMP_INCLUDE_DIR}/assimp/config.h"
-	AND EXISTS "${ASSIMP_INCLUDE_DIR}/assimp/Importer.hpp"))
-	find_path(ASSIMP_IMPORTER_INCLUDE_DIR NAMES assimp/Importer.hpp)
-	find_path(ASSIMP_CONFIG_INCLUDE_DIR NAMES assimp/config.h)
-	if(ASSIMP_IMPORTER_INCLUDE_DIR AND EXISTS "${ASSIMP_IMPORTER_INCLUDE_DIR}/assimp/config.h")
-		set(ASSIMP_INCLUDE_DIR "${ASSIMP_IMPORTER_INCLUDE_DIR}" CACHE PATH "Path to a complete Assimp include directory" FORCE)
-	elseif(ASSIMP_CONFIG_INCLUDE_DIR AND EXISTS "${ASSIMP_CONFIG_INCLUDE_DIR}/assimp/Importer.hpp")
-		set(ASSIMP_INCLUDE_DIR "${ASSIMP_CONFIG_INCLUDE_DIR}" CACHE PATH "Path to a complete Assimp include directory" FORCE)
+set(HAO_RENDER_ASSIMP_LIB "")
+set(HAO_RENDER_ASSIMP_INCLUDE "")
+if(TARGET assimp::assimp)
+	set(HAO_RENDER_ASSIMP_LIB assimp::assimp)
+	get_target_property(HAO_RENDER_ASSIMP_INCLUDE assimp::assimp INTERFACE_INCLUDE_DIRECTORIES)
+	if(NOT HAO_RENDER_ASSIMP_INCLUDE)
+		set(HAO_RENDER_ASSIMP_INCLUDE "")
 	endif()
-endif()
+else()
+	if(NOT (ASSIMP_INCLUDE_DIR
+		AND EXISTS "${ASSIMP_INCLUDE_DIR}/assimp/config.h"
+		AND EXISTS "${ASSIMP_INCLUDE_DIR}/assimp/Importer.hpp"))
+		unset(ASSIMP_INCLUDE_DIR CACHE)
+		find_path(ASSIMP_INCLUDE_DIR
+			NAMES assimp/config.h assimp/Importer.hpp
+			DOC "Path to a complete Assimp include directory")
+	endif()
 
-if(NOT EIGEN3_INCLUDE_DIR)
-	message(FATAL_ERROR "Complete Eigen headers were not found. Pass -DEIGEN3_INCLUDE_DIR=/path/to/eigen3 or install Eigen.")
-endif()
+	if(NOT ASSIMP_LIBRARY)
+		find_library(ASSIMP_LIBRARY NAMES assimp assimp-vc143-mtd)
+	endif()
 
-if(NOT ASSIMP_INCLUDE_DIR)
-	message(FATAL_ERROR "Complete Assimp headers were not found. Pass -DASSIMP_INCLUDE_DIR=/path/to/assimp/include or install Assimp.")
+	if(ASSIMP_INCLUDE_DIR AND ASSIMP_LIBRARY)
+		set(HAO_RENDER_ASSIMP_INCLUDE ${ASSIMP_INCLUDE_DIR})
+		set(HAO_RENDER_ASSIMP_LIB ${ASSIMP_LIBRARY})
+	else()
+		message(FATAL_ERROR
+			"Complete Assimp development files were not found. The repository only includes a legacy runtime DLL and partial headers; building requires the full Assimp SDK/package with assimp/config.h and an import library.\n"
+			"${HAO_RENDER_DEPENDENCY_HINT}\n"
+			"Manual alternative: pass -DASSIMP_INCLUDE_DIR=/path/to/assimp/include -DASSIMP_LIBRARY=/path/to/assimp.lib or pass -Dassimp_DIR=/path/to/assimp/cmake.")
+	endif()
 endif()
 
 if(HAO_RENDER_ENABLE_EMBREE AND NOT EMBREE_ROOT_DIR)
@@ -49,22 +117,13 @@ if(HAO_RENDER_ENABLE_EMBREE AND NOT EMBREE_ROOT_DIR)
 endif()
 
 add_executable(myrender qt_main.cpp tgaimage.cpp Drawer.cpp shader.cpp programmable_shader.cpp ppp.cpp render.cpp model.cpp raytrace_backend.cpp)
+target_include_directories(myrender BEFORE PRIVATE
+	${HAO_RENDER_EIGEN_INCLUDE}
+	${HAO_RENDER_ASSIMP_INCLUDE}
+	${OpenCV_INCLUDE_DIRS})
 target_include_directories(myrender PRIVATE
-	${EIGEN3_INCLUDE_DIR}
-	${ASSIMP_INCLUDE_DIR}
 	${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(myrender PRIVATE ${OpenCV_LIBRARIES} Qt5::Widgets)
-
-if(TARGET assimp::assimp)
-	target_link_libraries(myrender PRIVATE assimp::assimp)
-else()
-	find_library(ASSIMP_LIBRARY NAMES assimp assimp-vc143-mtd)
-	if(ASSIMP_LIBRARY)
-		target_link_libraries(myrender PRIVATE ${ASSIMP_LIBRARY})
-	else()
-		message(FATAL_ERROR "Assimp import library was not found. Install Assimp or pass -Dassimp_DIR=/path/to/assimp/cmake.")
-	endif()
-endif()
+target_link_libraries(myrender PRIVATE ${HAO_RENDER_OPENCV_LIBS} Qt5::Widgets ${HAO_RENDER_EIGEN_LIB} ${HAO_RENDER_ASSIMP_LIB})
 
 if(OpenMP_CXX_FOUND)
 	target_link_libraries(myrender PRIVATE OpenMP::OpenMP_CXX)
@@ -117,7 +176,7 @@ if(HAO_RENDER_ENABLE_EMBREE)
 	endif()
 endif()
 
-if(EXISTS "${CMAKE_SOURCE_DIR}/assimp-vc143-mtd.dll")
+if(HAO_RENDER_COPY_BUNDLED_ASSIMP_DLL AND EXISTS "${CMAKE_SOURCE_DIR}/assimp-vc143-mtd.dll")
 	add_custom_command(TARGET myrender POST_BUILD
 		COMMAND ${CMAKE_COMMAND} -E copy_if_different
 			"${CMAKE_SOURCE_DIR}/assimp-vc143-mtd.dll"

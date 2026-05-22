@@ -129,21 +129,56 @@ It collects the executable, runtime DLLs, Qt deployment folders, `Resources`, an
 - OpenMP-capable compiler recommended
 - Embree 4 optional
 
-### Configure and Build
+> Note: `assimp-vc143-mtd.dll` in this repository is only a legacy runtime DLL, not the Assimp development package. The `include/eigen3` and `include/assimp` folders are not complete SDKs either. Building from source requires complete Eigen / Assimp / OpenCV / Qt5 development packages.
+
+### Recommended: vcpkg Dependencies
+
+Windows users should prefer vcpkg manifest mode. This repository includes `vcpkg.json` and `CMakePresets.json`.
 
 ```powershell
-cmake -S . -B build-nonhalf -DCMAKE_BUILD_TYPE=Release
-cmake --build build-nonhalf --config Release
+git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+& "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+& "$env:USERPROFILE\vcpkg\vcpkg.exe" install --triplet x64-windows
+$env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+
+cmake --preset windows-vcpkg-vs2022
+cmake --build --preset windows-vcpkg-vs2022-release
 ```
 
-If your environment does not auto-discover dependencies:
+If you do not want to set `VCPKG_ROOT`, pass the toolchain file explicitly:
 
 ```powershell
-cmake -S . -B build-nonhalf `
+cmake -S . -B build/vs2022-vcpkg `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="$env:USERPROFILE\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+  -DHAO_RENDER_ENABLE_EMBREE=OFF
+cmake --build build/vs2022-vcpkg --config Release
+```
+
+### Manual Dependency Paths
+
+If you already installed dependencies yourself, use the manual preset and pass CMake package paths:
+
+```powershell
+cmake --preset windows-vs2022-manual-deps `
+  -DOpenCV_DIR="path\to\opencv\build" `
+  -DQt5_DIR="path\to\Qt5\lib\cmake\Qt5" `
+  -DEigen3_DIR="path\to\eigen3\share\eigen3\cmake" `
+  -Dassimp_DIR="path\to\assimp\lib\cmake\assimp-5.x"
+cmake --build --preset windows-vs2022-manual-release
+```
+
+If a dependency does not provide a CMake config package, pass include / library paths directly:
+
+```powershell
+cmake -S . -B build/vs2022-manual -G "Visual Studio 17 2022" -A x64 `
+  -DOpenCV_DIR="path\to\opencv\build" `
+  -DQt5_DIR="path\to\Qt5\lib\cmake\Qt5" `
   -DEIGEN3_INCLUDE_DIR="path\to\eigen3" `
   -DASSIMP_INCLUDE_DIR="path\to\assimp\include" `
-  -DEMBREE_ROOT_DIR="path\to\embree"
-cmake --build build-nonhalf --config Release
+  -DASSIMP_LIBRARY="path\to\assimp.lib" `
+  -DHAO_RENDER_ENABLE_EMBREE=OFF
+cmake --build build/vs2022-manual --config Release
 ```
 
 ### Useful Build Options
@@ -256,4 +291,3 @@ This repository and its Windows portable package may include or depend on third-
 - haorender is now positioned as a semi-industrial CPU renderer and renderer workstation, not merely a pipeline-learning toy.
 - The Qt desktop application is the primary user experience.
 - The OpenCV path is retained because it is still useful for narrow experiments and low-overhead comparison.
-

@@ -127,21 +127,56 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package_windows_portable.ps1 
 - 推荐支持 OpenMP 的编译器
 - Embree 4 可选
 
-### 构建命令
+> 注意：仓库里的 `assimp-vc143-mtd.dll` 只是历史运行时 DLL，不是 Assimp 开发包。仓库内的 `include/eigen3` 与 `include/assimp` 也不是完整 SDK。源码构建需要安装完整的 Eigen / Assimp / OpenCV / Qt5 开发包。
+
+### 推荐方式：vcpkg 一键依赖
+
+Windows 用户推荐使用 vcpkg manifest mode。仓库已经提供 `vcpkg.json` 和 `CMakePresets.json`。
 
 ```powershell
-cmake -S . -B build-nonhalf -DCMAKE_BUILD_TYPE=Release
-cmake --build build-nonhalf --config Release
+git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+& "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+& "$env:USERPROFILE\vcpkg\vcpkg.exe" install --triplet x64-windows
+$env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+
+cmake --preset windows-vcpkg-vs2022
+cmake --build --preset windows-vcpkg-vs2022-release
 ```
 
-如果依赖无法自动找到，可以显式传入路径：
+如果你不想设置 `VCPKG_ROOT`，也可以显式传入 toolchain：
 
 ```powershell
-cmake -S . -B build-nonhalf `
+cmake -S . -B build/vs2022-vcpkg `
+  -G "Visual Studio 17 2022" -A x64 `
+  -DCMAKE_TOOLCHAIN_FILE="$env:USERPROFILE\vcpkg\scripts\buildsystems\vcpkg.cmake" `
+  -DHAO_RENDER_ENABLE_EMBREE=OFF
+cmake --build build/vs2022-vcpkg --config Release
+```
+
+### 手动依赖路径
+
+如果你已经用自己的方式安装了依赖，可以使用手动 preset，并传入 CMake 包路径：
+
+```powershell
+cmake --preset windows-vs2022-manual-deps `
+  -DOpenCV_DIR="path\to\opencv\build" `
+  -DQt5_DIR="path\to\Qt5\lib\cmake\Qt5" `
+  -DEigen3_DIR="path\to\eigen3\share\eigen3\cmake" `
+  -Dassimp_DIR="path\to\assimp\lib\cmake\assimp-5.x"
+cmake --build --preset windows-vs2022-manual-release
+```
+
+如果你的依赖没有提供 CMake config，也可以传 include / library：
+
+```powershell
+cmake -S . -B build/vs2022-manual -G "Visual Studio 17 2022" -A x64 `
+  -DOpenCV_DIR="path\to\opencv\build" `
+  -DQt5_DIR="path\to\Qt5\lib\cmake\Qt5" `
   -DEIGEN3_INCLUDE_DIR="path\to\eigen3" `
   -DASSIMP_INCLUDE_DIR="path\to\assimp\include" `
-  -DEMBREE_ROOT_DIR="path\to\embree"
-cmake --build build-nonhalf --config Release
+  -DASSIMP_LIBRARY="path\to\assimp.lib" `
+  -DHAO_RENDER_ENABLE_EMBREE=OFF
+cmake --build build/vs2022-manual --config Release
 ```
 
 ### 常用选项
@@ -254,4 +289,3 @@ haorender 采用 Apache License 2.0 发布。完整许可证文本见 [LICENSE](
 - haorender 当前定位已经是“半工业级 CPU 渲染器与渲染工作台”，不再只是学习性质的小型练习项目。
 - Qt 桌面应用已经是主入口和主体验。
 - OpenCV 路径仍然保留，适合做轻量实验和低开销对照。
-

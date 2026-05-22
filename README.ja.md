@@ -27,25 +27,50 @@ haorender は C++ で実装した CPU ソフトウェアレンダラーです。
 - C++17 コンパイラ
 - CMake 3.10+
 - OpenCV
+- Qt 5 Widgets
 - Assimp
 - Eigen
 - OpenMP 対応コンパイラ、推奨
 - Embree 4、任意。ハイブリッドなラスタライズ + レイトレース陰影を使う場合に必要
 
-Windows 環境では、現在プロジェクト直下の `assimp-vc143-mtd.dll` を利用しています。Assimp のインストール場所が異なる場合は、`CMakeLists.txt` を調整するか、CMake 設定時に正しい include/CMake パスを指定してください。
+注意: リポジトリ直下の `assimp-vc143-mtd.dll` は過去の実行時 DLL であり、Assimp の開発パッケージではありません。`include/eigen3` と `include/assimp` も完全な SDK ではないため、ソースからビルドする場合は Eigen / Assimp / OpenCV / Qt5 の完全な開発パッケージをインストールしてください。
 
 ## ビルド
 
+Windows では vcpkg manifest mode を推奨します。このリポジトリには `vcpkg.json` と `CMakePresets.json` が含まれています。
+
 ```powershell
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --config Release
+git clone https://github.com/microsoft/vcpkg $env:USERPROFILE\vcpkg
+& "$env:USERPROFILE\vcpkg\bootstrap-vcpkg.bat"
+& "$env:USERPROFILE\vcpkg\vcpkg.exe" install --triplet x64-windows
+$env:VCPKG_ROOT = "$env:USERPROFILE\vcpkg"
+
+cmake --preset windows-vcpkg-vs2022
+cmake --build --preset windows-vcpkg-vs2022-release
 ```
 
-Eigen または Assimp が見つからない場合は、明示的にパスを渡します。
+依存関係を手動でインストールしている場合は、CMake package のパスを渡します。
 
 ```powershell
-cmake -S . -B build -DEIGEN3_INCLUDE_DIR="path\to\eigen3" -DASSIMP_INCLUDE_DIR="path\to\assimp\include"
-cmake --build build --config Release
+cmake --preset windows-vs2022-manual-deps `
+  -DOpenCV_DIR="path\to\opencv\build" `
+  -DQt5_DIR="path\to\Qt5\lib\cmake\Qt5" `
+  -DEigen3_DIR="path\to\eigen3\share\eigen3\cmake" `
+  -Dassimp_DIR="path\to\assimp\lib\cmake\assimp-5.x"
+cmake --build --preset windows-vs2022-manual-release
+```
+
+CMake config package がない場合は、include / library を直接指定できます。
+
+```powershell
+cmake -S . -B build/vs2022-manual -G "Visual Studio 17 2022" -A x64 `
+  -DOpenCV_DIR="path\to\opencv\build" `
+  -DQt5_DIR="path\to\Qt5\lib\cmake\Qt5" `
+  -DEIGEN3_INCLUDE_DIR="path\to\eigen3" `
+  -DASSIMP_INCLUDE_DIR="path\to\assimp\include" `
+  -DASSIMP_LIBRARY="path\to\assimp.lib" `
+  -DHAO_RENDER_ENABLE_EMBREE=OFF
+cmake --build build/vs2022-manual --config Release
 ```
 
 Z バッファとシャドウマップで半精度深度を試す場合は、次のオプションを有効にします。

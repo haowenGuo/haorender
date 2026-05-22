@@ -1,0 +1,41 @@
+{
+  "version": 3,
+  "configurePresets": [
+    {
+      "name": "windows-vcpkg-vs2022",
+      "displayName": "Windows VS2022 + vcpkg",
+      "description": "Configure haorender with Visual Studio 2022 and dependencies from vcpkg manifest mode.",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs2022-vcpkg",
+      "cacheVariables": {
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+        "HAO_RENDER_ENABLE_EMBREE": "OFF"
+      }
+    },
+    {
+      "name": "windows-vs2022-manual-deps",
+      "displayName": "Windows VS2022 + manual dependency paths",
+      "description": "Configure with Visual Studio 2022 when OpenCV_DIR, Qt5_DIR, Eigen3_DIR/EIGEN3_INCLUDE_DIR, and assimp_DIR/ASSIMP_* are provided manually.",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/vs2022-manual",
+      "cacheVariables": {
+        "HAO_RENDER_ENABLE_EMBREE": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-vcpkg-vs2022-release",
+      "configurePreset": "windows-vcpkg-vs2022",
+      "configuration": "Release"
+    },
+    {
+      "name": "windows-vs2022-manual-release",
+      "configurePreset": "windows-vs2022-manual-deps",
+      "configuration": "Release"
+    }
+  ]
+}
