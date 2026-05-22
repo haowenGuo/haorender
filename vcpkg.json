@@ -1,0 +1,11 @@
+{
+  "name": "haorender",
+  "version-string": "0.1.0",
+  "description": "CPU software rasterizer and Qt desktop rendering workstation.",
+  "dependencies": [
+    "assimp",
+    "eigen3",
+    "opencv4",
+    "qt5-base"
+  ]
+}
