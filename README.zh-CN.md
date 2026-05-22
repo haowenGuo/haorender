@@ -118,7 +118,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package_windows_portable.ps1 
 
 ### 依赖
 
-- CMake 3.10+
+- 推荐 CMake 3.20+ 使用 presets；手动配置仍支持 CMake 3.10+
 - C++17 编译器
 - Qt 5 Widgets
 - OpenCV

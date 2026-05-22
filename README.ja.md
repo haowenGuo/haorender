@@ -25,7 +25,7 @@ haorender は C++ で実装した CPU ソフトウェアレンダラーです。
 ## 必要環境
 
 - C++17 コンパイラ
-- CMake 3.10+
+- presets を使う場合は CMake 3.20+ 推奨。手動設定では CMake 3.10+ に対応
 - OpenCV
 - Qt 5 Widgets
 - Assimp

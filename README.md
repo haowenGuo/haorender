@@ -120,7 +120,7 @@ It collects the executable, runtime DLLs, Qt deployment folders, `Resources`, an
 
 ### Requirements
 
-- CMake 3.10+
+- CMake 3.20+ recommended for presets; CMake 3.10+ still works with manual configuration
 - C++17 compiler
 - Qt 5 Widgets
 - OpenCV
