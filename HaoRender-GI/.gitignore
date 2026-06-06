@@ -1,0 +1,11 @@
+llm.env.local
+*.env.local
+build/
+dist/
+runtime.log
+Screenshots/
+*.user
+*.suo
+*.vcxproj.user
+*.pdb
+*.ilk
